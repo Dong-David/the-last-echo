@@ -96,21 +96,23 @@ void MainGameLayer::Attach()
     std::vector<Aether::RenderPass> pipeline = {shadowPass, mainPass, volPass};
     Aether::Renderer::SetPipeline(pipeline);
 
-    // --- 4. ÁNH SÁNG ĐI THEO NHÂN VẬT ---
-    Aether::LightParam sunLightConfig;
-    sunLightConfig.type = Aether::LightType::Directional; // <-- Trả lại Directional
-    sunLightConfig.color = glm::vec3(1.0f, 0.95f, 0.9f);
-    sunLightConfig.intensity = 1.5f;                      // <-- Cường độ vừa phải
-    sunLightConfig.castShadows = true; 
-
-    m_SunLight = m_Scene.CreateEntity("FollowLight");
-    m_Scene.AddComponent<Aether::LightComponent>(m_SunLight).Config = sunLightConfig;
-
-    auto& sunTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_SunLight);
-    sunTransform.Translation = glm::vec3(0.0f, 100.0f, 0.0f); // Treo hẳn lên 100m
+    // --- 4. ÁNH SÁNG MẶT TRỜI (DIRECTIONAL LIGHT) ---
+    m_SunLight = m_Scene.CreateEntity("Sun Light");
+    auto& lightComp = m_Scene.AddComponent<Aether::LightComponent>(m_SunLight);
     
-    // Đổi góc X thành -45 độ, xoay nhẹ góc Y 30 độ để bóng đổ xiên chéo 
-    sunTransform.Rotation = glm::quat(glm::vec3(glm::radians(-45.0f), glm::radians(30.0f), 0.0f)); 
+    // Chuyển lại thành Directional để chiếu sáng toàn Map
+    lightComp.Config.type = Aether::LightType::Directional; 
+    lightComp.Config.color = glm::vec3(0.9f, 0.95f, 1.0f); 
+    lightComp.Config.intensity = 1.5f; // Sáng vừa đủ nhìn
+    lightComp.Config.castShadows = true;
+    
+    // Hướng ánh sáng xiên chéo chiếu xuống mặt đất
+    lightComp.Config.direction = glm::vec3(-0.5f, -1.0f, -0.5f); 
+
+    // Đặt Transform nghiêng tương ứng để bóng đổ chuẩn xác
+    auto& sunTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_SunLight);
+    sunTransform.Rotation = glm::quat(glm::vec3(glm::radians(-45.0f), glm::radians(30.0f), 0.0f));
+    sunTransform.Translation = glm::vec3(0.0f, 50.0f, 0.0f); // Treo thật cao lên
     sunTransform.Dirty = true;
 
     // --- 5. ĐỌC MODEL MAP ---
@@ -195,21 +197,20 @@ void MainGameLayer::Update(Aether::Timestep ts)
             pTransform.Dirty = true;
         }
 
-        // --- ĐOẠN THÊM MỚI: ÉP ĐÈN CHẠY THEO NHÂN VẬT ---
-        // 1. Lấy vị trí thực tế của Camera
-        glm::vec3 cameraPos = m_Camera.GetPosition();
-
-        // 2. Ép đèn chạy theo vị trí Camera
-        if (m_SunLight != Null_Entity && m_Scene.IsValid(m_SunLight))
+        // 2. Ép Mặt trời đi theo nhân vật để vùng đổ bóng (Shadow) luôn bao trùm quanh người
+        if (m_SunLight != Null_Entity && m_Scene.IsValid(m_SunLight) && 
+            m_Player != Null_Entity && m_Scene.IsValid(m_Player))
         {
             auto& lightTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_SunLight);
-            // Treo đèn cao 100m ngay trên đỉnh đầu Camera
-            lightTransform.Translation = glm::vec3(cameraPos.x, 100.0f, cameraPos.z);
+            auto& pTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Player);
+            
+            // Chỉ đi theo vị trí x, z. Treo cao 50m trên đầu nhân vật
+            lightTransform.Translation = pTransform.Translation + glm::vec3(0.0f, 50.0f, 0.0f);
             lightTransform.Dirty = true;
         }
 
-        // Cập nhật map quanh người với Bán Kính Động vừa tính được
-        UpdateMapChunks(cameraPos); 
+        // Cập nhật map quanh người (Lưu ý vẫn giữ pTransform.Translation nhé)
+        UpdateMapChunks(pTransform.Translation);
     }
 
     // --- Xoay tự động UI ---
@@ -382,7 +383,8 @@ void MainGameLayer::DrawLightingPanel()
     {
         auto& light = m_Scene.GetComponent<Aether::LightComponent>(m_SunLight).Config;
         ImGui::ColorEdit3("Color", glm::value_ptr(light.color));
-        ImGui::SliderFloat("Intensity", &light.intensity, 0.0f, 10.0f);
+        ImGui::SliderFloat("Intensity", &light.intensity, 0.0f, 5.0f);
+        ImGui::DragFloat3("Direction", glm::value_ptr(light.direction), 0.01f, -1.0f, 1.0f);
     }
     if (ImGui::CollapsingHeader("Shadow Settings", ImGuiTreeNodeFlags_DefaultOpen))
         ImGui::SliderFloat("Bias", &m_ShadowBias, 0.00001f, 0.005f, "%.5f");
