@@ -212,14 +212,14 @@ void MainGameLayer::Update(Aether::Timestep ts)
         if (m_LockCamera) 
         {
             // 1. Ép khoảng cách cố định khi chơi
-            m_Camera.SetDistance(15.0f);
+            m_Camera.SetDistance(15.0f); 
 
             // 2. CHỐNG NHÌN XUYÊN ĐẤT:
-            // Nếu góc Pitch nhỏ hơn 0.4 (khoảng 23 độ), ta ép nó ở mức 0.4
-            // Góc này sẽ giữ camera luôn ở trên mặt đất một khoảng an toàn.
-            if (m_Camera.GetPitch() < 0.4f)
+            // Nếu góc Pitch < 0.35 (khoảng 20 độ), camera đang nhìn quá ngang hoặc xuyên đất
+            // Chúng ta ép nó ngẩng lên một chút.
+            if (m_Camera.GetPitch() < 0.35f)
             {
-                m_Camera.SetPitch(0.4f); // Hàm này vừa thêm ở Bước 1
+                m_Camera.SetPitch(0.35f); 
             }
         }
 
@@ -245,25 +245,6 @@ void MainGameLayer::Update(Aether::Timestep ts)
                 t.Rotation.y += ts * m_RotationSpeed;
                 t.Dirty = true;
             }
-        }
-    }
-
-    if (m_LockCamera) 
-    {
-        // 1. Ép khoảng cách
-        m_Camera.SetDistance(15.0f);
-
-        // 2. CHỐNG NHÌN XUYÊN ĐẤT:
-        // Nếu góc nhìn quá thấp (Pitch gần bằng 0 hoặc âm), 
-        // ta sẽ 'lừa' camera bằng cách gọi OnEvent với một lượng cuộn ảo để đẩy nó lên.
-        // Tuy nhiên, cách tốt nhất là bạn kiểm tra xem class EditorCamera có biến m_Pitch là public không.
-        // Nếu không có SetPitch, ta dùng MouseDrag ảo để ép góc:
-        while (m_Camera.GetPitch() < 0.3f)
-        {
-            // Giả lập một thao tác di chuyển chuột đi lên để tăng Pitch
-            // Đây là mẹo nếu Engine không có hàm Setter.
-            m_Camera.OnUpdate(ts); // Hoặc can thiệp trực tiếp nếu có thể
-            break; // Tránh loop vô tận
         }
     }
 
@@ -363,7 +344,7 @@ void MainGameLayer::OnImGuiRender()
         
         ImGui::Separator();
         ImGui::Text("--- Camera Zoom Logic ---");
-        ImGui::SliderInt("Ban kinh toi thieu (Base)", &m_BaseRenderDistance, 1, 20);
+        ImGui::SliderInt("Ban kinh toi thieu (Base)", &m_BaseRenderDistance, 1, 30);
         ImGui::SliderFloat("Ti le Zoom -> Map", &m_ZoomInfluence, 5.0f, 50.0f, "%.1f");
         
         ImGui::Spacing();
@@ -465,15 +446,14 @@ void MainGameLayer::OnEvent(Aether::Event& event)
 {
     if (m_LockCamera)
     {
-        // Khóa cuộn chuột tuyệt đối
+        // Khóa Zoom tuyệt đối để không làm thay đổi Distance 15.0f
         if (event.GetEventType() == Aether::EventType::MouseScrolled)
         {
             event.Handled = true;
             return;
         }
-        
-        // Không cần chặn MouseMoved ở đây nữa vì hàm Update đã "ép" Pitch rồi
     }
 
+    // Nếu không bị chặn thì cho Camera xử lý xoay Yaw thoải mái
     if (!event.Handled) m_Camera.OnEvent(event);
 }
