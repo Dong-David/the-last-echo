@@ -20,9 +20,10 @@ namespace Aether {
 
         inline float GetDistance() const { return m_Distance; }
         inline void SetDistance(float distance) { m_Distance = distance; }
-        inline void SetFocalPoint(const glm::vec3& focalPoint) { m_FocalPoint = focalPoint; UpdateView(); }
 
         inline void SetViewportSize(float width, float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
+
+        inline void SetFocalPoint(const glm::vec3& focalPoint) { m_FocalPoint = focalPoint; UpdateView(); }
 
         glm::vec3 GetUpDirection() const;
         glm::vec3 GetRightDirection() const;
@@ -31,6 +32,7 @@ namespace Aether {
 
         float GetPitch() const { return m_Pitch; }
         float GetYaw() const { return m_Yaw; }
+        inline void SetPitch(float pitch) { m_Pitch = pitch; UpdateView(); }
 
     private:
         void UpdateProjection();
