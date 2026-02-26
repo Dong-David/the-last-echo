@@ -5,7 +5,6 @@
 #include <string>
 #include <map>
 #include <utility>
-#include "Aether/Scene/Scene.h"
 
 class MainGameLayer : public Aether::Layer
 {
@@ -41,6 +40,8 @@ private:
 
     // --- Nhân Vật (Player) ---
     Entity m_Player = Null_Entity;
+    Aether::UUID m_RunAnimation = 0;
+    Aether::UUID m_IdleAnimation = 0;
     float m_PlayerSpeed = 10.0f; // Tốc độ chạy của nhân vật
 
     // --- Hệ thống Map Động theo Zoom ---
@@ -63,4 +64,5 @@ private:
     float m_VolIntensity = 1.0f;
     int   m_VolSteps     = 64;
     float m_ShadowBias   = 0.00001f;
+    bool m_LockCamera = false;
 };
