@@ -8,7 +8,7 @@
 MainGameLayer::MainGameLayer()
     : Layer("Main Game"), m_Camera(45.0f, 1.778f, 0.1f, 1000.0f)
 {
-    m_Camera.SetDistance(4.0f);
+    m_Camera.SetDistance(6.0f);
 }
 
 void MainGameLayer::Attach()
@@ -191,8 +191,9 @@ void MainGameLayer::Detach()
     {
         if (rigSystem) rigSystem->DestroyAnimator(animID);
         if (m_Scene.IsValid(entity))
-            m_Scene.DestroyEntity(entity);
+           DestroyHierarchy(entity);
     }
+
     for (auto& [entity, bodyID] : m_ZombieBodyIDs)
         Aether::PhysicsSystem::DestroyBody(bodyID);
     m_ZombieAnimators.clear();
@@ -262,7 +263,9 @@ void MainGameLayer::Update(Aether::Timestep ts)
                 glm::quat targetRot = glm::quat(glm::vec3(0.0f, targetAngle, 0.0f));
                 if (glm::dot(pTransform.Rotation, targetRot) < 0.0f) targetRot = -targetRot;
                 float blend = 1.0f - glm::exp(-15.0f * (float)ts);
-                pTransform.Rotation = glm::slerp(pTransform.Rotation, targetRot, blend);
+                
+                // BỔ SUNG NORMALIZE CHO PLAYER TẠI ĐÂY:
+                pTransform.Rotation = glm::normalize(glm::slerp(pTransform.Rotation, targetRot, blend));
             }
             pTransform.Dirty = true;
 
@@ -308,7 +311,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
             m_Camera.SetFocalPoint(playerTopPos); // Đã có hiệu ứng nảy
             if (m_LockCamera)
             {
-                m_Camera.SetDistance(5.0f);
+                m_Camera.SetDistance(6.0f);
                 if (m_Camera.GetPitch() < 0.2f) m_Camera.SetPitch(0.2f);
             }
         }
@@ -342,6 +345,72 @@ void MainGameLayer::Update(Aether::Timestep ts)
         static float s_TimeAccumulator = 0.0f;
         s_TimeAccumulator += (float)ts;
 
+        // =========================================================
+        // HỆ THỐNG QUẢN LÝ QUẦN THỂ ZOMBIE (DESPAWN & AMBIENT SPAWN)
+        // =========================================================
+        
+        // Tính toán bán kính thực tế dựa trên Render Distance của Chunk
+        float actualChunkSize = m_ChunkSize * 2.0f; 
+        float despawnRadius = (m_CurrentRenderDistance * actualChunkSize) + (actualChunkSize * 1.5f);
+        float despawnRadiusSq = despawnRadius * despawnRadius;
+
+        // 1. DỌN RÁC: Tiêu diệt Zombie lọt ra khỏi bán kính
+        for (auto it = m_ActiveZombies.begin(); it != m_ActiveZombies.end(); )
+        {
+            Aether::Entity zombie = *it;
+            if (!m_Scene.IsValid(zombie)) {
+                it = m_ActiveZombies.erase(it);
+                continue;
+            }
+
+            auto& zT = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
+            glm::vec3 diffToPlayer = pTransform.Translation - zT.Translation;
+            diffToPlayer.y = 0.0f;
+
+            if (glm::dot(diffToPlayer, diffToPlayer) > despawnRadiusSq)
+            {
+                // Tiêu huỷ toàn bộ dữ liệu của zombie này để giải phóng RAM/CPU
+                if (m_ZombieAnimators.count(zombie)) {
+                    rigSystem->DestroyAnimator(m_ZombieAnimators[zombie]);
+                    m_ZombieAnimators.erase(zombie);
+                }
+                if (m_ZombieBodyIDs.count(zombie)) {
+                    Aether::PhysicsSystem::DestroyBody(m_ZombieBodyIDs[zombie]);
+                    m_ZombieBodyIDs.erase(zombie);
+                }
+                DestroyHierarchy(zombie);
+                it = m_ActiveZombies.erase(it); // Rút khỏi danh sách
+            }
+            else {
+                ++it;
+            }
+        }
+
+        // 2. PHỤC KÍCH: Tự động đẻ Zombie ở rìa sương mù khi Player đứng yên
+        static float s_SpawnTimer = 0.0f;
+        s_SpawnTimer += (float)ts;
+        
+        // Cứ mỗi 1 giây kiểm tra 1 lần, nếu thiếu thì bù đắp
+        if (s_SpawnTimer >= 1.0f)
+        {
+            s_SpawnTimer = 0.0f;
+            if (m_ActiveZombies.size() < 50) 
+            {
+                // Random 1 góc bất kỳ 360 độ xung quanh Player
+                float randomAngle = glm::radians((float)(std::rand() % 360));
+                
+                // Spawn ngay mép ngoài của Render Distance để Player không thấy nó "pop" ra giữa màn hình
+                float spawnDist = (m_CurrentRenderDistance * actualChunkSize) + (actualChunkSize * 0.5f);
+                
+                glm::vec3 spawnOffset = glm::vec3(glm::cos(randomAngle), 0.0f, glm::sin(randomAngle)) * spawnDist;
+                glm::vec3 spawnPos = pTransform.Translation + spawnOffset;
+                spawnPos.y = -1.75f; // Chạm đất
+
+                SpawnZombie(spawnPos);
+            }
+        }
+        // =========================================================
+
         for (Aether::Entity zombie : m_ActiveZombies)
         {
             if (!m_Scene.IsValid(zombie)) continue;
@@ -352,12 +421,15 @@ void MainGameLayer::Update(Aether::Timestep ts)
             auto zCoord = std::make_pair(zX, zZ);
 
             // 1. HƯỚNG ĐI CƠ BẢN (Từ FlowField hoặc hướng thẳng Player)
-            glm::vec3 baseDir(0.0f);
-            if (m_FlowField.find(zCoord) != m_FlowField.end() && glm::length(m_FlowField[zCoord].direction) > 0.0f) {
+            glm::vec3 baseDir(0.0f, 0.0f, 1.0f); // Luôn có hướng mặc định
+            if (m_FlowField.find(zCoord) != m_FlowField.end() && glm::length(m_FlowField[zCoord].direction) > 0.001f) {
                 baseDir = m_FlowField[zCoord].direction;
             } else {
-                baseDir = glm::normalize(pTransform.Translation - zT.Translation);
-                baseDir.y = 0.0f;
+                glm::vec3 diffBase = pTransform.Translation - zT.Translation;
+                diffBase.y = 0.0f;
+                if (glm::length(diffBase) > 0.001f) {
+                    baseDir = glm::normalize(diffBase);
+                }
             }
 
             // 2. THÊM TÍNH HỖN LOẠN (Shambling / Lảo đảo)
@@ -370,22 +442,44 @@ void MainGameLayer::Update(Aether::Timestep ts)
             // Tính toán độ lảo đảo bằng sóng Sine (Tần số và biên độ có thể tùy chỉnh)
             float wobble = glm::sin(s_TimeAccumulator * 2.5f + zSeed) * 0.35f; 
             
-            // 3. TRÁNH NÉ LẪN NHAU (Separation cực kỳ cơ bản)
-            // Giúp tụi nó tản ra một chút, không dính thành 1 cục
+            // 3. TRÁNH NÉ LẪN NHAU (Tối ưu hóa cực mạnh)
             glm::vec3 separationForce(0.0f);
+            float sepRadius = 0.8f;
+            float sepRadiusSq = sepRadius * sepRadius; // 0.64f
+            int neighborCount = 0;
+
             for (Aether::Entity other : m_ActiveZombies) {
                 if (other == zombie || !m_Scene.IsValid(other)) continue;
                 auto& otherT = m_Scene.GetComponent<Aether::TransformComponent>(other);
                 glm::vec3 diff = zT.Translation - otherT.Translation;
                 diff.y = 0.0f;
-                float dist = glm::length(diff);
-                if (dist > 0.0f && dist < 0.8f) { // Nếu đứng quá gần nhau
-                    separationForce += glm::normalize(diff) * (1.0f - dist);
+                
+                // Dùng dot product để lấy bình phương khoảng cách (tránh dùng hàm sqrt đắt đỏ)
+                float distSq = glm::dot(diff, diff); 
+                
+                if (distSq > 0.001f && distSq < sepRadiusSq) { 
+                    // CHỈ tính sqrt khi tụi nó thực sự dính vào nhau
+                    float dist = glm::sqrt(distSq); 
+                    // Tối ưu hóa phép normalize: diff / dist chính là normalize(diff)
+                    separationForce += (diff / dist) * (sepRadius - dist); 
+                    neighborCount++;
                 }
+            }
+            
+            // Nếu có quá nhiều zombie bu lại (neighborCount lớn), chia đều lực đẩy ra 
+            // để tụi nó không bị cộng dồn lực đẩy văng xuyên tường hay văng lên trời
+            if (neighborCount > 0) {
+                separationForce /= (float)neighborCount;
             }
 
             // 4. TỔNG HỢP HƯỚNG ĐI CUỐI CÙNG
-            glm::vec3 finalMoveDir = glm::normalize(baseDir + rightDir * wobble + separationForce * 0.5f);
+            glm::vec3 totalForce = baseDir + rightDir * wobble + separationForce * 0.5f;
+            glm::vec3 finalMoveDir = baseDir; // Mặc định lấy hướng gốc để phòng hờ
+
+            // CHỐNG LỖI CHIA CHO 0 (Ngăn chặn Zombie biến thành quái vật khổng lồ)
+            if (glm::length(totalForce) > 0.001f) {
+                finalMoveDir = glm::normalize(totalForce);
+            }
 
             // 5. TỐC ĐỘ NGẪU NHIÊN CHO TỪNG CON
             // Thay đổi tốc độ từ 80% đến 120% tốc độ gốc dựa theo ID
@@ -404,15 +498,21 @@ void MainGameLayer::Update(Aether::Timestep ts)
                 glm::quat targetRot = glm::quat(glm::vec3(0.0f, targetAngle, 0.0f));
                 if (glm::dot(zT.Rotation, targetRot) < 0.0f) targetRot = -targetRot;
                 
-                // 2. Làm mượt góc xoay (Zombie xoay người từ từ)
-                zT.Rotation = glm::slerp(zT.Rotation, targetRot, 1.0f - glm::exp(-5.0f * (float)ts)); 
+                // 2. Làm mượt góc xoay & CHỐNG LỖI QUATERNION DRIFT (Phình to quái vật)
+                // Ép normalize để độ dài quaternion luôn = 1.0, không bị scale mesh
+                zT.Rotation = glm::normalize(glm::slerp(zT.Rotation, targetRot, 1.0f - glm::exp(-5.0f * (float)ts))); 
                 
-                // 3. QUAN TRỌNG NHẤT: Bắt zombie đi theo hướng NÓ ĐANG NHÌN
-                // Nhờ việc góc nhìn (Rotation) đã được làm mượt ở trên, bước đi sẽ tạo thành đường cong (Curve)
-                // thay vì bị giật ziczac theo góc lưới.
-                glm::vec3 currentFacingDir = glm::normalize(zT.Rotation * glm::vec3(0.0f, 0.0f, 1.0f));
+                // 3. QUAN TRỌNG NHẤT: Ép hướng nhìn luôn song song mặt đất
+                glm::vec3 facing = zT.Rotation * glm::vec3(0.0f, 0.0f, 1.0f);
+                facing.y = 0.0f; // Bắt buộc trục Y = 0 để zombie không trôi lên trời
                 
-                zT.Translation += currentFacingDir * (actualSpeed * (float)ts);
+                if (glm::length(facing) > 0.001f) {
+                    glm::vec3 currentFacingDir = glm::normalize(facing);
+                    zT.Translation += currentFacingDir * (actualSpeed * (float)ts);
+                    
+                    // Khoá cứng toạ độ Y của Zombie bằng với lúc mới đẻ ra (không lún đất)
+                    zT.Translation.y = -1.75f; 
+                }
                 zT.Dirty    = true;
             }
         }
@@ -535,11 +635,13 @@ void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
 // ==========================================
 void MainGameLayer::SpawnZombie(const glm::vec3& position)
 {
+    static uint32_t s_ZombieCounter = 0;
+    s_ZombieCounter++;
     if (m_ActiveZombies.size() >= 50) return;
 
     // 1. Clone animator TRƯỚC khi LoadHierarchy để có UUID sẵn
     Aether::UUID newAnimID = Aether::AssetsRegister::Register(
-        "ZombieAnim_" + std::to_string(m_ActiveZombies.size()));
+        "ZombieAnim_" + std::to_string(s_ZombieCounter));
 
     auto rigSystem = Aether::AnimationSystem::GetModule<Aether::RigModule>();
     if (rigSystem) {
@@ -568,10 +670,10 @@ void MainGameLayer::SpawnZombie(const glm::vec3& position)
 
     // 5. Physics: Kinematic Capsule
     Aether::UUID bodyID = Aether::AssetsRegister::Register(
-        "ZombieBody_" + std::to_string(m_ActiveZombies.size()));
+        "ZombieBody_" + std::to_string(s_ZombieCounter));
     {
         Aether::BodyConfig cfg;
-        cfg.motionType  = Aether::MotionType::Dynamic;
+        cfg.motionType  = Aether::MotionType::Kinematic;
         cfg.shape       = Aether::ColliderShape::Capsule;
         cfg.size        = glm::vec3(0.35f, 0.9f, 0.0f); // radius, halfHeight
         cfg.transform   = { position, glm::quat(1,0,0,0) };
@@ -866,7 +968,7 @@ void MainGameLayer::OnEvent(Aether::Event& event)
                 m_Camera.SetDistance(0.5f);
             } else {
                 pTransform.Scale = {1.0f, 1.0f, 1.0f};
-                m_Camera.SetDistance(5.0f);
+                m_Camera.SetDistance(6.0f);
             }
             pTransform.Dirty = true;
             event.Handled    = true;
@@ -896,7 +998,7 @@ void MainGameLayer::OnEvent(Aether::Event& event)
             if (e.GetYOffset() < 0)
             {
                 m_FirstPerson = false;
-                m_Camera.SetDistance(5.0f);
+                m_Camera.SetDistance(6.0f);
                 event.Handled = true;
                 return;
             }
@@ -919,4 +1021,23 @@ void MainGameLayer::OnEvent(Aether::Event& event)
 
     if (!event.Handled)
         m_Camera.OnEvent(event);
+}
+
+void MainGameLayer::DestroyHierarchy(Aether::Entity entity)
+{
+    if (!m_Scene.IsValid(entity)) return;
+
+    // 1. Tìm và xóa tất cả các node con (Mesh, Bones, v.v.)
+    auto& hierarchy = m_Scene.GetComponent<Aether::HierarchyComponent>(entity);
+    Aether::Entity child = hierarchy.firstChild;
+    while (child != Aether::Null_Entity)
+    {
+        // Phải lấy sibling trước khi xóa con
+        Aether::Entity next = m_Scene.GetComponent<Aether::HierarchyComponent>(child).nextSibling;
+        DestroyHierarchy(child); // Đệ quy xóa node con
+        child = next;
+    }
+
+    // 2. Sau khi con đã sạch, mới xóa chính node cha
+    m_Scene.DestroyEntity(entity);
 }
