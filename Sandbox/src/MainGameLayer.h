@@ -31,6 +31,7 @@ public:
 
 private:
     void UpdateMapChunks(const glm::vec3& playerPos);
+    void DestroyHierarchy(Aether::Entity entity);
 
     // --- Các hàm vẽ giao diện ImGui ---
     void DrawHierarchyPanel();
