@@ -705,6 +705,7 @@ void MainGameLayer::SpawnZombie(const glm::vec3& position)
         cfg.restitution = 0.0f;
         Aether::PhysicsSystem::CreateBody(bodyID, cfg);
         m_Scene.AddComponent<Aether::ColliderComponent>(newZombie, bodyID, glm::vec3(0.0f));
+        m_Scene.GetComponent<Aether::ColliderComponent>(newZombie).Visible = true;
     }
 
     // 6. Lưu lại để cleanup sau
@@ -1032,62 +1033,72 @@ void MainGameLayer::OnEvent(Aether::Event& event)
         }
     }
 
-    // --- BẮN SÚNG ---
+    // Tìm đoạn này trong MainGameLayer.cpp -> OnEvent
     if (event.GetEventType() == Aether::EventType::MouseButtonPressed)
     {
         if (Aether::Input::IsMouseButtonPressed(Aether::Mouse::Button0))
         {
-            auto rigSystem = Aether::AnimationSystem::GetModule<Aether::RigModule>();
-            rigSystem->Play(m_ShootAnimation);
-
-            auto& pTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Player);
+            // 1. Lấy thông tin vị trí Camera và Súng
+            auto& gTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Gun);
+            glm::vec3 camPos = m_Camera.GetPosition();
+            glm::vec3 camDir = m_Camera.GetForwardDirection(); // Đây chính là "Tâm màn hình"
             
-            // 1. Tính toán hướng bắn (Lấy chính xác từ hướng nhìn Player)
-            glm::vec3 shootOrigin = pTransform.Translation + glm::vec3(0.0f, 1.4f, 0.0f); // Ngang tầm mắt/súng
-            glm::vec3 shootDir    = glm::normalize(pTransform.Rotation * glm::vec3(0.0f, 0.0f, 1.0f));
-            float maxRange = 60.0f;
-            glm::vec3 laserEnd = shootOrigin + shootDir * maxRange;
+            // 2. Xác định mục tiêu (Target) cách tâm màn hình 100 mét
+            float maxRange = 100.0f;
+            glm::vec3 targetPoint = camPos + (camDir * maxRange);
 
-            // 2. Kiểm tra va chạm (Raycast) - Giữ nguyên logic cũ nhưng gọn hơn
+            // 3. Raycast tìm Zombie dựa trên hướng nhìn của mắt (Camera)
             Aether::Entity hitZombie = Aether::Null_Entity;
             float minDist = maxRange;
 
             for (Aether::Entity zombie : m_ActiveZombies) {
                 if (!m_Scene.IsValid(zombie)) continue;
                 auto& zT = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
-                glm::vec3 vecToZ = (zT.Translation + glm::vec3(0.0f, 1.0f, 0.0f)) - shootOrigin;
-                float dAlongRay = glm::dot(vecToZ, shootDir);
+                glm::vec3 zCenter = zT.Translation + glm::vec3(0.0f, 1.2f, 0.0f);
+                
+                glm::vec3 vecToZ = zCenter - camPos;
+                float dAlongRay = glm::dot(vecToZ, camDir);
+                
                 if (dAlongRay > 0.0f && dAlongRay < minDist) {
-                    float dToRay = glm::length(vecToZ - (shootDir * dAlongRay));
-                    if (dToRay < 0.6f) { minDist = dAlongRay; hitZombie = zombie; }
+                    float dToRay = glm::length(vecToZ - (camDir * dAlongRay));
+                    if (dToRay < 0.6f) { // Độ rộng của tâm ngắm
+                        minDist = dAlongRay;
+                        hitZombie = zombie;
+                        targetPoint = camPos + (camDir * minDist); // Điểm chạm thực tế
+                    }
                 }
             }
 
+            // 4. Tính toán vị trí Nòng Súng thực tế để vẽ tia Laser
+            // m_MuzzleOffset bạn đã khai báo trong file .h (ví dụ: 0, 0, 0.8)
+            glm::vec3 muzzlePos = gTransform.Translation + (gTransform.Rotation * m_MuzzleOffset);
+
+            // 5. Tạo tia đạn (Laser) nối từ Nòng súng -> TargetPoint
+            Aether::Entity laser = m_Scene.CreateEntity("LaserBeam");
+            auto& lt = m_Scene.GetComponent<Aether::TransformComponent>(laser);
+            
+            lt.Translation = (muzzlePos + targetPoint) * 0.5f; // Đặt ở giữa quãng đường
+            glm::vec3 laserDir = glm::normalize(targetPoint - muzzlePos);
+            lt.Rotation = glm::quatLookAt(laserDir, glm::vec3(0, 1, 0));
+            
+            float beamLength = glm::length(targetPoint - muzzlePos);
+            lt.Scale = glm::vec3(0.01f, 0.01f, beamLength);
+
+            // 6. Gán màu sắc và hiệu ứng (giữ nguyên logic cũ của bạn)
+            auto laserMat = Aether::Material::Create();
+            laserMat->AddVec4("u_Color", glm::vec4(20.0f, 5.0f, 1.0f, 1.0f)); 
+            auto& lMesh = m_Scene.AddComponent<Aether::MeshComponent>(laser);
+            lMesh.MeshPtr = m_BaseMapMesh; 
+            lMesh.Materials = { laserMat };
+
+            m_TempEffects.push_back({ laser, 0.04f });
+
+            // 7. Tiêu diệt Zombie nếu trúng
             if (hitZombie != Aether::Null_Entity) {
-                laserEnd = shootOrigin + shootDir * minDist;
                 DestroyHierarchy(hitZombie);
                 m_ActiveZombies.erase(std::remove(m_ActiveZombies.begin(), m_ActiveZombies.end(), hitZombie), m_ActiveZombies.end());
             }
 
-            // 3. TẠO 1 TIA ĐẠN (Chỉ 1 cái duy nhất)
-            Aether::Entity laser = m_Scene.CreateEntity("LaserBeam");
-            auto& lt = m_Scene.GetComponent<Aether::TransformComponent>(laser);
-            
-            float beamLength = glm::length(laserEnd - shootOrigin);
-            lt.Translation = (shootOrigin + laserEnd) * 0.5f; // Đặt ở giữa quãng đường bay
-            lt.Rotation    = pTransform.Rotation;
-            // Scale cực mỏng (0.01) để nó giống sợi chỉ sáng, không bị lộ hình dáng mesh gốc
-            lt.Scale       = glm::vec3(0.01f, 0.01f, beamLength); 
-
-            auto laserMat = Aether::Material::Create();
-            // Màu HDR: Chỉ số > 1.0 sẽ tạo hiệu ứng phát sáng (Bloom) nếu Engine có hỗ trợ
-            laserMat->AddVec4("u_Color", glm::vec4(10.0f, 2.0f, 0.5f, 1.0f)); // Màu đỏ rực phát sáng
-            
-            auto& lMesh = m_Scene.AddComponent<Aether::MeshComponent>(laser);
-            lMesh.MeshPtr = m_BaseMapMesh; // Dùng tạm, nhưng nhờ scale 0.01 nên sẽ khó thấy lỗi
-            lMesh.Materials = { laserMat };
-
-            m_TempEffects.push_back({ laser, 0.04f }); // Biến mất sau 0.04s (chớp mắt)
             event.Handled = true;
         }
     }
