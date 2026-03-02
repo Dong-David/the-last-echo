@@ -880,9 +880,40 @@ void MainGameLayer::OnImGuiRender()
     }
     ImGui::End();
 
+    ImGui::Begin("Weapon Adjustment");
+    ImGui::DragFloat3("Muzzle Offset", glm::value_ptr(m_MuzzleOffset), 0.01f);
+    ImGui::End();
+
     DrawHierarchyPanel();
     DrawScenePanel();
     DrawLightingPanel();
+
+    // --- VẼ TÂM NGẮM (CROSSHAIR) Ở GIỮA MÀN HÌNH ---
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    
+    // Tìm tọa độ chính giữa màn hình
+    ImVec2 center = ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, 
+                           viewport->Pos.y + viewport->Size.y * 0.5f);
+    
+    // Cấu hình dấu thập (+)
+    float lineLength = 12.0f;   // Độ dài của mỗi nhánh
+    float thickness = 2.0f;     // Độ dày của nét vẽ
+    ImU32 white = IM_COL32(255, 255, 255, 255); // Màu trắng
+    ImU32 green = IM_COL32(0, 255, 0, 255);     // Màu xanh lá (dễ nhìn hơn)
+
+    // Lấy danh sách vẽ đè lên trên cùng của màn hình (Foreground)
+    auto drawList = ImGui::GetForegroundDrawList();
+
+    // Vẽ đường ngang
+    drawList->AddLine(ImVec2(center.x - lineLength, center.y), 
+                      ImVec2(center.x + lineLength, center.y), green, thickness);
+    
+    // Vẽ đường dọc
+    drawList->AddLine(ImVec2(center.x, center.y - lineLength), 
+                      ImVec2(center.x, center.y + lineLength), green, thickness);
+
+    // (Tùy chọn) Vẽ một chấm nhỏ ở chính giữa
+    drawList->AddCircleFilled(center, 2.0f, white);
 }
 
 // --- Vẽ từng node trong hierarchy ---
@@ -1038,21 +1069,23 @@ void MainGameLayer::OnEvent(Aether::Event& event)
     {
         if (Aether::Input::IsMouseButtonPressed(Aether::Mouse::Button0))
         {
-            // 1. Lấy thông tin vị trí Camera và Súng
+            // Kiểm tra an toàn thực thể Súng
+            if (!m_Scene.IsValid(m_Gun)) return;
+
             auto& gTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Gun);
             glm::vec3 camPos = m_Camera.GetPosition();
-            glm::vec3 camDir = m_Camera.GetForwardDirection(); // Đây chính là "Tâm màn hình"
+            glm::vec3 camDir = m_Camera.GetForwardDirection();
             
-            // 2. Xác định mục tiêu (Target) cách tâm màn hình 100 mét
             float maxRange = 100.0f;
             glm::vec3 targetPoint = camPos + (camDir * maxRange);
 
-            // 3. Raycast tìm Zombie dựa trên hướng nhìn của mắt (Camera)
             Aether::Entity hitZombie = Aether::Null_Entity;
             float minDist = maxRange;
 
+            // --- Duyệt tìm Zombie (An toàn) ---
             for (Aether::Entity zombie : m_ActiveZombies) {
-                if (!m_Scene.IsValid(zombie)) continue;
+                if (!m_Scene.IsValid(zombie)) continue; 
+
                 auto& zT = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
                 glm::vec3 zCenter = zT.Translation + glm::vec3(0.0f, 1.2f, 0.0f);
                 
@@ -1061,41 +1094,46 @@ void MainGameLayer::OnEvent(Aether::Event& event)
                 
                 if (dAlongRay > 0.0f && dAlongRay < minDist) {
                     float dToRay = glm::length(vecToZ - (camDir * dAlongRay));
-                    if (dToRay < 0.6f) { // Độ rộng của tâm ngắm
+                    if (dToRay < 0.6f) {
                         minDist = dAlongRay;
                         hitZombie = zombie;
-                        targetPoint = camPos + (camDir * minDist); // Điểm chạm thực tế
+                        targetPoint = camPos + (camDir * minDist);
                     }
                 }
             }
 
-            // 4. Tính toán vị trí Nòng Súng thực tế để vẽ tia Laser
-            // m_MuzzleOffset bạn đã khai báo trong file .h (ví dụ: 0, 0, 0.8)
+            // --- Tạo tia đạn ---
             glm::vec3 muzzlePos = gTransform.Translation + (gTransform.Rotation * m_MuzzleOffset);
-
-            // 5. Tạo tia đạn (Laser) nối từ Nòng súng -> TargetPoint
             Aether::Entity laser = m_Scene.CreateEntity("LaserBeam");
             auto& lt = m_Scene.GetComponent<Aether::TransformComponent>(laser);
             
-            lt.Translation = (muzzlePos + targetPoint) * 0.5f; // Đặt ở giữa quãng đường
+            lt.Translation = (muzzlePos + targetPoint) * 0.5f;
             glm::vec3 laserDir = glm::normalize(targetPoint - muzzlePos);
             lt.Rotation = glm::quatLookAt(laserDir, glm::vec3(0, 1, 0));
             
             float beamLength = glm::length(targetPoint - muzzlePos);
             lt.Scale = glm::vec3(0.01f, 0.01f, beamLength);
 
-            // 6. Gán màu sắc và hiệu ứng (giữ nguyên logic cũ của bạn)
             auto laserMat = Aether::Material::Create();
             laserMat->AddVec4("u_Color", glm::vec4(20.0f, 5.0f, 1.0f, 1.0f)); 
+            
             auto& lMesh = m_Scene.AddComponent<Aether::MeshComponent>(laser);
-            lMesh.MeshPtr = m_BaseMapMesh; 
+            
+            // LẤY MESH AN TOÀN
+            if (m_Scene.HasComponent<Aether::MeshComponent>(m_Gun)) {
+                lMesh.MeshPtr = m_Scene.GetComponent<Aether::MeshComponent>(m_Gun).MeshPtr;
+            } else {
+                lMesh.MeshPtr = m_BaseMapMesh; // Backup nếu súng không có mesh
+            }
             lMesh.Materials = { laserMat };
 
             m_TempEffects.push_back({ laser, 0.04f });
 
-            // 7. Tiêu diệt Zombie nếu trúng
+            // --- XỬ LÝ XÓA ZOMBIE (Sửa lỗi tràn mảng/hỏng iterator) ---
             if (hitZombie != Aether::Null_Entity) {
+                // Xóa thực thể trong Scene trước
                 DestroyHierarchy(hitZombie);
+                // Xóa khỏi danh sách theo kiểu Remove-Erase idiom (An toàn nhất)
                 m_ActiveZombies.erase(std::remove(m_ActiveZombies.begin(), m_ActiveZombies.end(), hitZombie), m_ActiveZombies.end());
             }
 
