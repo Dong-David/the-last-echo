@@ -126,7 +126,7 @@ private:
     uint32_t m_FrameCounter = 0;
 
     std::shared_ptr<Aether::Texture2D> m_MuzzleFlashTexture; // Lưu ảnh tiadan.png
-    glm::vec3 m_MuzzleOffset = { 0.38f, -0.25f, 1.2f };
+    glm::vec3 m_MuzzleOffset = { 0.0f, -0.25f, 1.2f };
     
     // Cấu trúc để quản lý các thực thể tạm thời (tia đạn/lửa)
     struct TemporaryEffect {
@@ -134,4 +134,5 @@ private:
         float lifetime;
     };
     std::vector<TemporaryEffect> m_TempEffects;
+    Aether::Ref<Aether::Mesh> m_LaserMesh;
 };
