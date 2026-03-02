@@ -261,7 +261,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
             pTransform.Translation += moveDir * (m_PlayerSpeed * (float)ts);
 
             if (!m_FirstPerson)
-            {
+            {                
                 float targetAngle = glm::atan(moveDir.x, moveDir.z);
                 glm::quat targetRot = glm::quat(glm::vec3(0.0f, targetAngle, 0.0f));
                 if (glm::dot(pTransform.Rotation, targetRot) < 0.0f) targetRot = -targetRot;
@@ -311,10 +311,12 @@ void MainGameLayer::Update(Aether::Timestep ts)
         else
         {
             pTransform.Scale = {1.0f, 1.0f, 1.0f};
-            m_Camera.SetFocalPoint(playerTopPos); // Đã có hiệu ứng nảy
+            glm::vec3 shoulderOffset = m_Camera.GetRightDirection() * 0.5f; // Bạn đã viết dòng này
+            m_Camera.SetFocalPoint(playerTopPos + shoulderOffset);         // Cập nhật FocalPoint có offset
+
             if (m_LockCamera)
             {
-                m_Camera.SetDistance(6.0f);
+                m_Camera.SetDistance(5.0f); // Chỉnh lại khoảng cách cho vừa tầm nhìn
                 if (m_Camera.GetPitch() < 0.2f) m_Camera.SetPitch(0.2f);
             }
         }
@@ -903,6 +905,15 @@ void MainGameLayer::OnImGuiRender()
 
     // Lấy danh sách vẽ đè lên trên cùng của màn hình (Foreground)
     auto drawList = ImGui::GetForegroundDrawList();
+
+    // Tính toán độ giãn của tâm (mới)
+    static float crosshairSpread = 0.0f;
+    bool isMoving = glm::length(m_PlayerVelocity) > 0.1f; // Hoặc check phím W A S D
+    if (isMoving) crosshairSpread = glm::mix(crosshairSpread, 15.0f, 0.1f);
+    else          crosshairSpread = glm::mix(crosshairSpread, 0.0f, 0.1f);
+
+    float baseLength = 10.0f;
+    float offset = 5.0f + crosshairSpread; // Khoảng hở ở giữa tâm
 
     // Vẽ đường ngang
     drawList->AddLine(ImVec2(center.x - lineLength, center.y), 
