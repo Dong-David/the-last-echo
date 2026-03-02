@@ -916,12 +916,20 @@ void MainGameLayer::OnImGuiRender()
     float offset = 5.0f + crosshairSpread; // Khoảng hở ở giữa tâm
 
     // Vẽ đường ngang
-    drawList->AddLine(ImVec2(center.x - lineLength, center.y), 
-                      ImVec2(center.x + lineLength, center.y), green, thickness);
+    drawList->AddLine(ImVec2(center.x - offset - baseLength, center.y), 
+                  ImVec2(center.x - offset, center.y), green, thickness);
     
-    // Vẽ đường dọc
-    drawList->AddLine(ImVec2(center.x, center.y - lineLength), 
-                      ImVec2(center.x, center.y + lineLength), green, thickness);
+    // 1. Vẽ vạch TRÊN
+    drawList->AddLine(ImVec2(center.x, center.y - offset - baseLength), 
+                    ImVec2(center.x, center.y - offset), green, thickness);
+
+    // 2. Vẽ vạch DƯỚI
+    drawList->AddLine(ImVec2(center.x, center.y + offset), 
+                    ImVec2(center.x, center.y + offset + baseLength), green, thickness);
+
+    // 3. Đừng quên vạch NGANG BÊN PHẢI (để đủ bộ 4 hướng)
+    drawList->AddLine(ImVec2(center.x + offset, center.y), 
+                    ImVec2(center.x + offset + baseLength, center.y), green, thickness);
 
     // (Tùy chọn) Vẽ một chấm nhỏ ở chính giữa
     drawList->AddCircleFilled(center, 2.0f, white);
