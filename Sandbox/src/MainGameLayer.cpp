@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <imgui.h>
+#include "Aether/Core/Log.h"
 
 MainGameLayer::MainGameLayer()
     : Layer("Main Game"), m_Camera(45.0f, 1.778f, 0.1f, 1000.0f)
@@ -605,52 +606,68 @@ void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
 
     std::vector<std::pair<int, int>> chunksToKeep;
 
-    for (int x = -m_CurrentRenderDistance; x <= m_CurrentRenderDistance; ++x)
-    {
-        for (int z = -m_CurrentRenderDistance; z <= m_CurrentRenderDistance; ++z)
-        {
+    // --- TẠO MỚI ---
+    for (int x = -m_CurrentRenderDistance; x <= m_CurrentRenderDistance; ++x) {
+        for (int z = -m_CurrentRenderDistance; z <= m_CurrentRenderDistance; ++z) {
             int targetX = currentX + x;
             int targetZ = currentZ + z;
             auto coord  = std::make_pair(targetX, targetZ);
             chunksToKeep.push_back(coord);
 
-            if (m_ActiveChunks.find(coord) == m_ActiveChunks.end())
-            {
-                Aether::Entity chunk = m_Scene.CreateEntity(
-                    "MapGrid_" + std::to_string(targetX) + "_" + std::to_string(targetZ));
-
+            if (m_ActiveChunks.find(coord) == m_ActiveChunks.end()) {
+                // 1. Tạo thực thể đất
+                Aether::Entity chunk = m_Scene.CreateEntity("MapGrid_" + std::to_string(targetX) + "_" + std::to_string(targetZ));
                 auto& t = m_Scene.GetComponent<Aether::TransformComponent>(chunk);
                 float yOffset = -(actualChunkSize / 2.0f);
                 t.Translation = glm::vec3(targetX * actualChunkSize, yOffset, targetZ * actualChunkSize);
                 t.Scale       = {myScaleXZ, 1.0f, myScaleXZ};
                 t.Dirty       = true;
 
-                auto& chunkcmp     = m_Scene.AddComponent<Aether::MeshComponent>(chunk);
+                auto& chunkcmp   = m_Scene.AddComponent<Aether::MeshComponent>(chunk);
                 chunkcmp.MeshPtr   = m_BaseMapMesh;
                 chunkcmp.Materials = {m_BaseMapMaterial};
-                m_ActiveChunks[coord] = chunk;
 
-                // 15% cơ hội spawn zombie, không sát Player
-                if (std::rand() % 100 < 15 && (std::abs(x) > 2 || std::abs(z) > 2))
-                {
+                // 2. Khởi tạo dữ liệu Chunk
+                ChunkData newData;
+                newData.landEntity = chunk;
+
+                // 3. Spawn Zombie và TRÓI BUỘC vào Chunk này
+                if (std::rand() % 100 < 15 && (std::abs(x) > 2 || std::abs(z) > 2)) {
                     glm::vec3 spawnPos = t.Translation;
                     spawnPos.y = -1.75f;
-                    SpawnZombie(spawnPos);
+                    
+                    // Gọi SpawnZombie và nhận về Entity (Cần đổi SpawnZombie sang trả về Entity)
+                    Aether::Entity zEnt = SpawnZombie(spawnPos);
+                    if (zEnt != Aether::Null_Entity) {
+                        newData.zombies.push_back(zEnt);
+                    }
                 }
+                m_ActiveChunks[coord] = newData;
             }
         }
     }
 
-    // Xóa chunk quá xa
-    for (auto it = m_ActiveChunks.begin(); it != m_ActiveChunks.end(); )
-    {
-        if (std::find(chunksToKeep.begin(), chunksToKeep.end(), it->first) == chunksToKeep.end())
-        {
-            if (it->second != Aether::Null_Entity && m_Scene.IsValid(it->second))
-                m_Scene.DestroyEntity(it->second);
+    // --- XÓA CŨ (Dọn dẹp cả đất lẫn zombie) ---
+    for (auto it = m_ActiveChunks.begin(); it != m_ActiveChunks.end(); ) {
+        bool keep = false;
+        for (const auto& c : chunksToKeep) { if (c == it->first) { keep = true; break; } }
+
+        if (!keep) {
+            // Xóa sạch Zombie của mảnh đất này
+            for (Aether::Entity zombie : it->second.zombies) {
+                if (m_Scene.IsValid(zombie)) {
+                    m_ZombieAnimators.erase(zombie);
+                    m_ZombieBodyIDs.erase(zombie);
+                    m_ActiveZombies.erase(std::remove(m_ActiveZombies.begin(), m_ActiveZombies.end(), zombie), m_ActiveZombies.end());
+                    DestroyHierarchy(zombie);
+                }
+            }
+            // Xóa mảnh đất
+            if (m_Scene.IsValid(it->second.landEntity))
+                m_Scene.DestroyEntity(it->second.landEntity);
+                
             it = m_ActiveChunks.erase(it);
-        }
-        else {
+        } else {
             ++it;
         }
     }
@@ -659,16 +676,14 @@ void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
 // ==========================================
 // HÀM ĐẺ ZOMBIE — Mỗi con có animator riêng
 // ==========================================
-void MainGameLayer::SpawnZombie(const glm::vec3& position)
+Aether::Entity MainGameLayer::SpawnZombie(const glm::vec3& position)
 {
     static uint32_t s_ZombieCounter = 0;
+    if (m_ActiveZombies.size() >= 50) return Aether::Null_Entity;
     s_ZombieCounter++;
-    if (m_ActiveZombies.size() >= 50) return;
 
-    // 1. Clone animator TRƯỚC khi LoadHierarchy để có UUID sẵn
-    Aether::UUID newAnimID = Aether::AssetsRegister::Register(
-        "ZombieAnim_" + std::to_string(s_ZombieCounter));
-
+    // 1. Animator
+    Aether::UUID newAnimID = Aether::AssetsRegister::Register("ZombieAnim_" + std::to_string(s_ZombieCounter));
     auto rigSystem = Aether::AnimationSystem::GetModule<Aether::RigModule>();
     if (rigSystem) {
         rigSystem->CloneAnimator(newAnimID, m_ZombieRunAnimation);
@@ -676,12 +691,11 @@ void MainGameLayer::SpawnZombie(const glm::vec3& position)
         rigSystem->Play(newAnimID);
     }
 
-    // 2. Tạm thời đổi animatorID trong scene data
-    // CreateNodeEntity đọc reg.animatorIDS[node.animatorIdx] -> tự stamp newAnimID vào AnimatorComponent
+    // 2. Trick LoadHierarchy (Giữ nguyên phần này vì nó giúp load "thân xác" ổn nhất)
     Aether::UUID originalAnimID = m_ZombieSceneData.animatorIDS[0];
     m_ZombieSceneData.animatorIDS[0] = newAnimID;
 
-    // 3. Tạo entity và load hierarchy
+    // 3. Entity
     Aether::Entity newZombie = m_Scene.CreateEntity("Zombie_Minion");
     auto& zTransform = m_Scene.GetComponent<Aether::TransformComponent>(newZombie);
     zTransform.Translation = position;
@@ -690,30 +704,30 @@ void MainGameLayer::SpawnZombie(const glm::vec3& position)
     zTransform.Dirty       = true;
 
     m_Scene.LoadHierarchy(m_ZombieSceneData, newZombie);
-
-    // 4. Khôi phục ID gốc
     m_ZombieSceneData.animatorIDS[0] = originalAnimID;
 
-    // 5. Physics: Kinematic Capsule
-    Aether::UUID bodyID = Aether::AssetsRegister::Register(
-        "ZombieBody_" + std::to_string(s_ZombieCounter));
+    // 4. Physics (Sửa lại tên biến BodyID theo Engine của bạn)
+    Aether::UUID bodyID = Aether::AssetsRegister::Register("ZombieBody_" + std::to_string(s_ZombieCounter));
     {
         Aether::BodyConfig cfg;
         cfg.motionType  = Aether::MotionType::Kinematic;
         cfg.shape       = Aether::ColliderShape::Capsule;
-        cfg.size        = glm::vec3(0.35f, 0.9f, 0.0f); // radius, halfHeight
+        cfg.size        = glm::vec3(0.35f, 0.9f, 0.0f);
         cfg.transform   = { position, glm::quat(1,0,0,0) };
-        cfg.friction    = 0.5f;
-        cfg.restitution = 0.0f;
         Aether::PhysicsSystem::CreateBody(bodyID, cfg);
-        m_Scene.AddComponent<Aether::ColliderComponent>(newZombie, bodyID, glm::vec3(0.0f));
-        m_Scene.GetComponent<Aether::ColliderComponent>(newZombie).Visible = true;
+        
+        // Lưu ý: Nếu Engine báo lỗi bodyID, hãy đổi thành BodyID hoặc dùng đúng hàm AddComponent
+        auto& col = m_Scene.AddComponent<Aether::ColliderComponent>(newZombie);
+        col.BodyID = bodyID; 
+        col.Visible = true;
     }
 
-    // 6. Lưu lại để cleanup sau
+    // 5. Quản lý
     m_ZombieAnimators[newZombie] = newAnimID;
     m_ZombieBodyIDs[newZombie]   = bodyID;
     m_ActiveZombies.push_back(newZombie);
+
+    return newZombie; // Phải trả về để hàm UpdateMapChunks lưu lại
 }
 
 void MainGameLayer::UpdateFlowField(const glm::vec3& targetPos)
