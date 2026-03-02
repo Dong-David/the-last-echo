@@ -123,4 +123,14 @@ private:
     // Luồng cho Load Map Chunk
     std::future<void> m_MapChunkFuture;
     std::mutex m_MapChunkMutex;
+    uint32_t m_FrameCounter = 0;
+
+    std::shared_ptr<Aether::Texture2D> m_MuzzleFlashTexture; // Lưu ảnh tiadan.png
+    
+    // Cấu trúc để quản lý các thực thể tạm thời (tia đạn/lửa)
+    struct TemporaryEffect {
+        Aether::Entity entity;
+        float lifetime;
+    };
+    std::vector<TemporaryEffect> m_TempEffects;
 };
