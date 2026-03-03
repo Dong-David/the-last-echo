@@ -12,9 +12,9 @@
 
 // --- HỆ THỐNG FLOW FIELD ---
 struct FlowCell {
-    int cost = 1;               // 1 = Đi được, 255 = Chướng ngại vật (Tường)
-    int bestCost = 999999;      // Khoảng cách ngắn nhất tới Player
-    glm::vec3 direction = glm::vec3(0.0f); // Hướng đi lý tưởng tại ô này
+    int cost = 1;               
+    int bestCost = 999999;      
+    glm::vec3 direction = glm::vec3(0.0f); 
 };
 
 class MainGameLayer : public Aether::Layer
@@ -97,6 +97,7 @@ private:
     bool  m_IsReloading = false;        // Trạng thái đang nạp đạn
     float m_ReloadTimer = 0.0f;         // Bộ đếm thời gian nạp
     float m_ReloadDuration = 2.5f;      // Thời gian nạp đạn (2.5 giây)
+    float m_AmmoEmptyTimer = 0.0f; // Quản lý thời gian hiệu ứng nhảy khi hết đạn
 
     // --- Hiệu ứng UI ---
     float m_ReloadRotation = 0.0f;      // Góc xoay của tâm hình tròn khi reload
@@ -135,9 +136,6 @@ private:
     float m_ShadowBias    = 0.00001f;
     bool  m_LockCamera    = false;
     bool  m_FirstPerson   = false;
-    // --- Logic Fog ---
-    bool m_EnableFog = true;
-    glm::vec3 m_FogColor = { 0.5f, 0.6f, 0.7f };
 
     // --- Quản lý Animation Súng ---
     Aether::UUID m_ShootAnimation = 0;
@@ -156,12 +154,10 @@ private:
 
     std::shared_ptr<Aether::Texture2D> m_MuzzleFlashTexture; // Lưu ảnh tiadan.png
     glm::vec3 m_MuzzleOffset = { 0.0f, -0.25f, 1.2f };
-    
-    // Cấu trúc để quản lý các thực thể tạm thời (tia đạn/lửa)
-    struct TemporaryEffect {
-        Aether::Entity entity;
-        float lifetime;
-    };
-    std::vector<TemporaryEffect> m_TempEffects;
-    Aether::Ref<Aether::Mesh> m_LaserMesh;
+
+    int   m_FogMode = 2;                          // 2 = exponential
+    glm::vec3 m_FogColor = glm::vec3(0.5f, 0.6f, 0.7f); // Grey-blue mist
+    float m_FogDensity = 0.03f;
+    float m_FogStart = 10.0f;
+    float m_FogEnd = 80.0f;
 };  
