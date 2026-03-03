@@ -46,6 +46,7 @@ private:
     Aether::Ref<Aether::Shader> m_ShadowShader;
     Aether::Ref<Aether::Shader> m_MainShader;
     Aether::Ref<Aether::Shader> m_VolShader;
+    std::vector<Aether::RenderPass> m_Pipeline;
 
     Aether::Entity m_SunLight      = Aether::Null_Entity;
     Aether::Entity m_SelectedEntity = Aether::Null_Entity;
@@ -57,6 +58,9 @@ private:
     float m_PlayerSpeed = 10.0f;
     glm::vec3 m_PlayerVelocity = glm::vec3(0.0f);
     Aether::UUID m_PlayerBodyID = 0; // Physics body
+    // --- Logic Bobbing ---
+    float m_bobSpeed = 12.0f;    // Tốc độ nhịp bước
+    float m_bobStrength = 0.08f; // Độ mạnh của cú nảy
 
     // --- HỆ THỐNG ZOMBIE ---
     Aether::RegisteredScene m_ZombieSceneData;
@@ -131,6 +135,9 @@ private:
     float m_ShadowBias    = 0.00001f;
     bool  m_LockCamera    = false;
     bool  m_FirstPerson   = false;
+    // --- Logic Fog ---
+    bool m_EnableFog = true;
+    glm::vec3 m_FogColor = { 0.5f, 0.6f, 0.7f };
 
     // --- Quản lý Animation Súng ---
     Aether::UUID m_ShootAnimation = 0;
