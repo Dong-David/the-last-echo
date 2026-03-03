@@ -88,15 +88,15 @@ void MainGameLayer::Attach()
     volPass.CullFace      = Aether::State::None;
     volPass.OnScreen      = true;
     volPass.UsingGeometry = false;
-    volPass.IsActive = false;
+    volPass.IsActive = m_EnableFog;
     volPass.readList      = {
         { "u_SceneColor", mainPass.TargetFBO->GetColorAttachment() },
         { "u_SceneDepth", mainPass.TargetFBO->GetDepthAttachment() },
         { "u_ShadowMap",  shadowPass.TargetFBO->GetDepthAttachment() }
     };
 
-    std::vector<Aether::RenderPass> pipeline = {shadowPass, mainPass, volPass};
-    Aether::Renderer::SetPipeline(pipeline);
+    m_Pipeline = { shadowPass, mainPass, volPass }; // Lưu vào biến member
+    Aether::Renderer::SetPipeline(m_Pipeline);
 
     // --- ÁNH SÁNG MẶT TRỜI ---
     m_SunLight = m_Scene.CreateEntity("Sun Light");
@@ -274,7 +274,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
             pTransform.Dirty = true;
 
             // Tăng timer để tạo nhịp bước đi (số 12.0f là tốc độ nhịp, có thể chỉnh)
-            s_HeadBobTimer += (float)ts * 10.0f; 
+            s_HeadBobTimer += (float)ts * m_bobSpeed; 
             // Tăng dần biên độ lắc lư lên 1.0 (mượt)
             s_BobAmplitudeBlend = glm::mix(s_BobAmplitudeBlend, 1.0f, (float)ts * 10.0f);
         }
@@ -292,7 +292,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
         
         // TÍNH TOÁN ĐỘ NẢY Y (LÊN/XUỐNG)
         // Góc nhìn thứ nhất nảy mạnh hơn (0.08f) so với góc nhìn thứ 3 (0.03f) để đỡ chóng mặt
-        float targetAmplitude = m_FirstPerson ? 0.06f : 0.03f;
+        float targetAmplitude = m_FirstPerson ? m_bobStrength : m_bobStrength / 2.0f;
         // Dùng hàm sin để tạo sóng nảy. Hàm trị tuyệt đối (abs) tạo cảm giác nhún theo mỗi bước chân
         float bobOffsetY = glm::abs(glm::sin(s_HeadBobTimer)) * targetAmplitude * s_BobAmplitudeBlend;
 
@@ -566,6 +566,12 @@ void MainGameLayer::Update(Aether::Timestep ts)
         }
     }
 
+    if (m_Pipeline.size() > 2) {
+        m_Pipeline[2].IsActive = m_EnableFog;
+        // Sau khi thay đổi IsActive, cần gọi lại SetPipeline để Engine cập nhật
+        Aether::Renderer::SetPipeline(m_Pipeline); 
+    }
+
     // --- BƯỚC 5: SHADER UNIFORMS VÀ VŨ KHÍ ---
     m_VolShader->Bind();
     m_VolShader->SetFloat("u_Density",    m_VolDensity);
@@ -573,6 +579,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
     m_VolShader->SetInt  ("u_Steps",      m_VolSteps);
     m_VolShader->SetFloat("u_VolBias",    m_ShadowBias);
     m_VolShader->SetFloat("u_MaxDistance", 100.0f);
+    m_VolShader->SetFloat3("u_FogColor", m_FogColor);
 
     m_MainShader->Bind();
     m_MainShader->SetFloat("u_Bias", m_ShadowBias);
@@ -1095,6 +1102,20 @@ void MainGameLayer::DrawLightingPanel()
     if (ImGui::CollapsingHeader("Shadow Settings", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::SliderFloat("Shadow Bias", &m_ShadowBias, 0.00001f, 0.005f, "%.5f");
+    }
+
+    if (ImGui::CollapsingHeader("Atmosphere & Fog", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox("Enable Fog", &m_EnableFog);
+        ImGui::ColorEdit3("Fog Color", glm::value_ptr(m_FogColor));
+        ImGui::SliderFloat("Fog Density", &m_VolDensity, 0.0f, 0.1f);
+        ImGui::SliderFloat("Fog Intensity", &m_VolIntensity, 0.0f, 5.0f);
+    }
+
+    if (ImGui::CollapsingHeader("Camera Movement"))
+    {
+        ImGui::SliderFloat("Bob Speed", &m_bobSpeed, 5.0f, 20.0f);
+        ImGui::SliderFloat("Bob Strength", &m_bobStrength, 0.01f, 0.2f);
     }
 
     ImGui::End();
