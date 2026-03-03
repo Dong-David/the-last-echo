@@ -322,6 +322,27 @@ void MainGameLayer::Update(Aether::Timestep ts)
             }
         }
 
+        // --- LOGIC NẠP ĐẠN ---
+        if (Aether::Input::IsKeyPressed(Aether::Key::R) && !m_IsReloading && m_CurrentAmmo < m_MaxAmmo)
+        {
+            m_IsReloading = true;
+            m_ReloadTimer = m_ReloadDuration;
+            AE_INFO("Reloading...");
+        }
+
+        if (m_IsReloading)
+        {
+            m_ReloadTimer -= (float)ts;
+            m_ReloadRotation += (float)ts * 7.0f; // Tốc độ xoay của vòng tròn
+
+            if (m_ReloadTimer <= 0.0f)
+            {
+                m_CurrentAmmo = m_MaxAmmo; // Hồi đầy đạn (vô tận dự trữ)
+                m_IsReloading = false;
+                AE_INFO("Reload Complete!");
+            }
+        }
+
         // --- BƯỚC 4: CÁC HỆ THỐNG PHỤ THUỘC VÀ AI ---
         if (m_SunLight != Aether::Null_Entity && m_Scene.IsValid(m_SunLight))
         {
@@ -904,49 +925,86 @@ void MainGameLayer::OnImGuiRender()
     DrawScenePanel();
     DrawLightingPanel();
 
-    // --- VẼ TÂM NGẮM (CROSSHAIR) Ở GIỮA MÀN HÌNH ---
+    // ============================================================================
+    // --- PHẦN MỚI: UI HIỂN THỊ ĐẠN (Góc dưới bên phải) ---
+    // ============================================================================
     ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 window_pos = ImVec2(viewport->Pos.x + viewport->Size.x - 180, viewport->Pos.y + viewport->Size.y - 100);
+    ImGui::SetNextWindowPos(window_pos);
     
-    // Tìm tọa độ chính giữa màn hình
+    // Tạo một cửa sổ trong suốt không tiêu đề
+    ImGui::Begin("AmmoDisplay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+    
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "WEAPON: ASSAULT RIFLE"); // Tên súng (bạn có thể thay đổi)
+    
+    if (m_IsReloading) {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "RELOADING...");
+    } else {
+        // Hiển thị: 30 / INF (Đạn vô tận)
+        std::string ammoText = std::to_string(m_CurrentAmmo) + " / INF";
+        ImGui::SetWindowFontScale(1.5f); // Làm chữ to hơn
+        ImGui::Text("%s", ammoText.c_str());
+        ImGui::SetWindowFontScale(1.0f);
+    }
+    ImGui::End();
+
+
+    // ============================================================================
+    // --- PHẦN MỚI: VẼ TÂM NGẮM (Biến hình khi Reload) ---
+    // ============================================================================
     ImVec2 center = ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, 
                            viewport->Pos.y + viewport->Size.y * 0.5f);
     
-    // Cấu hình dấu thập (+)
-    float lineLength = 12.0f;   // Độ dài của mỗi nhánh
-    float thickness = 2.0f;     // Độ dày của nét vẽ
-    ImU32 white = IM_COL32(255, 255, 255, 255); // Màu trắng
-    ImU32 green = IM_COL32(0, 255, 0, 255);     // Màu xanh lá (dễ nhìn hơn)
-
-    // Lấy danh sách vẽ đè lên trên cùng của màn hình (Foreground)
     auto drawList = ImGui::GetForegroundDrawList();
+    float thickness = 2.0f;
+    ImU32 green = IM_COL32(0, 255, 0, 255);
+    ImU32 white = IM_COL32(255, 255, 255, 255);
 
-    // Tính toán độ giãn của tâm (mới)
-    static float crosshairSpread = 0.0f;
-    bool isMoving = glm::length(m_PlayerVelocity) > 0.1f; // Hoặc check phím W A S D
-    if (isMoving) crosshairSpread = glm::mix(crosshairSpread, 15.0f, 0.1f);
-    else          crosshairSpread = glm::mix(crosshairSpread, 0.0f, 0.1f);
+    if (m_IsReloading)
+    {
+        // --- TÂM HÌNH TRÒN XOAY (Khi đang nạp đạn) ---
+        float radius = 15.0f;
+        int numSegments = 8; // Số lượng vạch trong vòng tròn
+        for (int i = 0; i < numSegments; i++)
+        {
+            // Tính toán góc cho từng vạch cộng thêm biến xoay m_ReloadRotation
+            float angle = m_ReloadRotation + (i * ((2.0f * 3.14159f) / numSegments));
+            
+            // Vẽ các đoạn thẳng ngắn tạo thành vòng tròn
+            ImVec2 p1 = ImVec2(center.x + cos(angle) * (radius - 5), center.y + sin(angle) * (radius - 5));
+            ImVec2 p2 = ImVec2(center.x + cos(angle) * radius, center.y + sin(angle) * radius);
+            
+            drawList->AddLine(p1, p2, white, thickness);
+        }
+        // Vẽ thêm chấm đỏ mờ ở giữa để định hướng
+        drawList->AddCircleFilled(center, 1.5f, IM_COL32(255, 0, 0, 150));
+    }
+    else
+    {
+        // --- TÂM 4 VẠCH (Khi bình thường) ---
+        // Theo ý bạn: Bắn không bị giật ra (chỉ giật khi di chuyển nếu muốn)
+        static float crosshairSpread = 0.0f;
+        bool isMoving = glm::length(m_PlayerVelocity) > 0.1f; 
+        
+        // Độ giãn chỉ thay đổi theo việc di chuyển, không liên quan đến việc bắn
+        if (isMoving) crosshairSpread = glm::mix(crosshairSpread, 12.0f, 0.1f);
+        else          crosshairSpread = glm::mix(crosshairSpread, 0.0f, 0.1f);
 
-    float baseLength = 10.0f;
-    float offset = 5.0f + crosshairSpread; // Khoảng hở ở giữa tâm
+        float baseLength = 10.0f;
+        float offset = 5.0f + crosshairSpread;
 
-    // Vẽ đường ngang
-    drawList->AddLine(ImVec2(center.x - offset - baseLength, center.y), 
-                  ImVec2(center.x - offset, center.y), green, thickness);
-    
-    // 1. Vẽ vạch TRÊN
-    drawList->AddLine(ImVec2(center.x, center.y - offset - baseLength), 
-                    ImVec2(center.x, center.y - offset), green, thickness);
-
-    // 2. Vẽ vạch DƯỚI
-    drawList->AddLine(ImVec2(center.x, center.y + offset), 
-                    ImVec2(center.x, center.y + offset + baseLength), green, thickness);
-
-    // 3. Đừng quên vạch NGANG BÊN PHẢI (để đủ bộ 4 hướng)
-    drawList->AddLine(ImVec2(center.x + offset, center.y), 
-                    ImVec2(center.x + offset + baseLength, center.y), green, thickness);
-
-    // (Tùy chọn) Vẽ một chấm nhỏ ở chính giữa
-    drawList->AddCircleFilled(center, 2.0f, white);
+        // Vạch Trái
+        drawList->AddLine(ImVec2(center.x - offset - baseLength, center.y), ImVec2(center.x - offset, center.y), green, thickness);
+        // Vạch Phải
+        drawList->AddLine(ImVec2(center.x + offset, center.y), ImVec2(center.x + offset + baseLength, center.y), green, thickness);
+        // Vạch Trên
+        drawList->AddLine(ImVec2(center.x, center.y - offset - baseLength), ImVec2(center.x, center.y - offset), green, thickness);
+        // Vạch Dưới
+        drawList->AddLine(ImVec2(center.x, center.y + offset), ImVec2(center.x, center.y + offset + baseLength), green, thickness);
+        
+        // Chấm nhỏ cố định ở tâm
+        drawList->AddCircleFilled(center, 1.5f, white);
+    }
 }
 
 // --- Vẽ từng node trong hierarchy ---
@@ -1102,6 +1160,15 @@ void MainGameLayer::OnEvent(Aether::Event& event)
     {
         if (Aether::Input::IsMouseButtonPressed(Aether::Mouse::Button0))
         {
+            if (m_IsReloading) { 
+                AE_WARN("Cant shoot while reloading!");
+                return; 
+            }
+            if (m_CurrentAmmo <= 0) {
+                AE_WARN("Out of ammo! Press R");
+                return;
+            }
+            m_CurrentAmmo--;
             // Kiểm tra an toàn thực thể Súng
             if (!m_Scene.IsValid(m_Gun)) return;
 
