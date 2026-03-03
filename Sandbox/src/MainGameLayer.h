@@ -66,7 +66,7 @@ private:
     Aether::UUID m_ZombieRunAnimation  = 0;
     Aether::UUID m_ZombieIdleAnimation = 0;
     float m_ZombieSpeed = 3.5f;
-    void SpawnZombie(const glm::vec3& position);
+    Aether::Entity SpawnZombie(const glm::vec3& position);
 
     // --- HỆ THỐNG FLOW FIELD ---
     std::map<std::pair<int, int>, FlowCell> m_FlowField;
@@ -87,15 +87,37 @@ private:
     glm::vec3 m_GunRotTP   = { 0.0f, -90.0f, 0.0f };
     glm::vec3 m_GunScaleTP = { 0.2f, 0.2f, 0.2f };
 
+    // --- Logic đạn dược ---
+    int   m_CurrentAmmo = 30;           // Đạn trong băng hiện tại
+    int   m_MaxAmmo = 30;               // Băng đạn tối đa
+    bool  m_IsReloading = false;        // Trạng thái đang nạp đạn
+    float m_ReloadTimer = 0.0f;         // Bộ đếm thời gian nạp
+    float m_ReloadDuration = 2.5f;      // Thời gian nạp đạn (2.5 giây)
+
+    // --- Hiệu ứng UI ---
+    float m_ReloadRotation = 0.0f;      // Góc xoay của tâm hình tròn khi reload
+
     // --- Hệ thống Map Động theo Zoom ---
     float m_ChunkSize = 2.0f;
     int   m_BaseRenderDistance   = 15;
     float m_ZoomInfluence        = 5.0f;
     int   m_CurrentRenderDistance = 15;
 
+    // PHẢI ĐỊNH NGHĨA STRUCT TRƯỚC KHI DÙNG TRONG MAP
+    struct ChunkData {
+        Aether::Entity landEntity = Aether::Null_Entity;
+        std::vector<Aether::Entity> zombies; 
+    };
+
+    // Sau đó mới khai báo map sử dụng ChunkData
+    std::map<std::pair<int, int>, ChunkData> m_ActiveChunks;
+    
+    // Logic tối ưu hóa việc load map
+    glm::vec3 m_LastChunkUpdatePos = { 1000.0f, 1000.0f, 1000.0f }; // Vị trí lần cuối cập nhật map
+    float m_ChunkUpdateThreshold = 5.0f;
+
     Aether::Ref<Aether::Mesh>     m_BaseMapMesh;
     Aether::Ref<Aether::Material> m_BaseMapMaterial;
-    std::map<std::pair<int, int>, Aether::Entity> m_ActiveChunks;
     std::vector<Aether::UUID> m_LoadedMeshes;
 
     // --- Biến cho UI & Đồ họa ---
@@ -135,4 +157,4 @@ private:
     };
     std::vector<TemporaryEffect> m_TempEffects;
     Aether::Ref<Aether::Mesh> m_LaserMesh;
-};
+};  
