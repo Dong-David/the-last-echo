@@ -88,7 +88,7 @@ void MainGameLayer::Attach()
     volPass.CullFace      = Aether::State::None;
     volPass.OnScreen      = true;
     volPass.UsingGeometry = false;
-    volPass.IsActive = m_EnableFog;
+    volPass.IsActive = false;
     volPass.readList      = {
         { "u_SceneColor", mainPass.TargetFBO->GetColorAttachment() },
         { "u_SceneDepth", mainPass.TargetFBO->GetDepthAttachment() },
@@ -152,7 +152,7 @@ void MainGameLayer::Attach()
         cfg.friction    = 0.5f;
         cfg.restitution = 0.0f;
         Aether::PhysicsSystem::CreateBody(m_PlayerBodyID, cfg);
-        m_Scene.AddComponent<Aether::ColliderComponent>(m_Player, m_PlayerBodyID, glm::vec3(0.0f));
+        m_Scene.AddComponent<Aether::ColliderComponent>(m_Player, m_PlayerBodyID, cfg.shape, cfg.size, glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     // --- TẢI ZOMBIE (Lưu RegisteredScene để dùng lại khi spawn) ---
@@ -341,6 +341,11 @@ void MainGameLayer::Update(Aether::Timestep ts)
                 m_IsReloading = false;
                 AE_INFO("Reload Complete!");
             }
+        }
+
+        if (m_AmmoEmptyTimer > 0.0f)
+        {
+            m_AmmoEmptyTimer -= (float)ts; // Giảm timer theo thời gian
         }
 
         // --- BƯỚC 4: CÁC HỆ THỐNG PHỤ THUỘC VÀ AI ---
@@ -549,27 +554,6 @@ void MainGameLayer::Update(Aether::Timestep ts)
                 }
             }
         }
-
-        for (auto it = m_TempEffects.begin(); it != m_TempEffects.end(); )
-        {
-            it->lifetime -= (float)ts;
-            if (it->lifetime <= 0.0f)
-            {
-                if (m_Scene.IsValid(it->entity))
-                    m_Scene.DestroyEntity(it->entity);
-                    
-                it = m_TempEffects.erase(it); // Xóa khỏi danh sách quản lý
-            }
-            else {
-                ++it;
-            }
-        }
-    }
-
-    if (m_Pipeline.size() > 2) {
-        m_Pipeline[2].IsActive = m_EnableFog;
-        // Sau khi thay đổi IsActive, cần gọi lại SetPipeline để Engine cập nhật
-        Aether::Renderer::SetPipeline(m_Pipeline); 
     }
 
     // --- BƯỚC 5: SHADER UNIFORMS VÀ VŨ KHÍ ---
@@ -579,10 +563,17 @@ void MainGameLayer::Update(Aether::Timestep ts)
     m_VolShader->SetInt  ("u_Steps",      m_VolSteps);
     m_VolShader->SetFloat("u_VolBias",    m_ShadowBias);
     m_VolShader->SetFloat("u_MaxDistance", 100.0f);
-    m_VolShader->SetFloat3("u_FogColor", m_FogColor);
 
     m_MainShader->Bind();
     m_MainShader->SetFloat("u_Bias", m_ShadowBias);
+
+    m_MainShader->SetInt("u_FogMode", m_FogMode);
+    m_MainShader->SetFloat3("u_FogColor", m_FogColor);
+    m_MainShader->SetFloat("u_FogDensity", m_FogDensity);
+    m_MainShader->SetFloat("u_FogStart", m_FogStart);
+    m_MainShader->SetFloat("u_FogEnd", m_FogEnd);
+    m_MainShader->SetFloat("u_Bias", m_ShadowBias);
+
 
     if (m_Scene.IsValid(m_Gun) && m_Scene.IsValid(m_Player))
     {
@@ -675,13 +666,11 @@ void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
         }
     }
 
-    // --- XÓA CŨ (Dọn dẹp cả đất lẫn zombie) ---
     for (auto it = m_ActiveChunks.begin(); it != m_ActiveChunks.end(); ) {
         bool keep = false;
         for (const auto& c : chunksToKeep) { if (c == it->first) { keep = true; break; } }
 
         if (!keep) {
-            // Xóa sạch Zombie của mảnh đất này
             for (Aether::Entity zombie : it->second.zombies) {
                 if (m_Scene.IsValid(zombie)) {
                     m_ZombieAnimators.erase(zombie);
@@ -734,24 +723,22 @@ Aether::Entity MainGameLayer::SpawnZombie(const glm::vec3& position)
     m_Scene.LoadHierarchy(m_ZombieSceneData, newZombie);
     m_ZombieSceneData.animatorIDS[0] = originalAnimID;
 
-    // 4. Physics (Sửa lại tên biến BodyID theo Engine của bạn)
-    Aether::UUID bodyID = Aether::AssetsRegister::Register("ZombieBody_" + std::to_string(s_ZombieCounter));
+    Aether::UUID bodyID = m_Scene.GetComponent<Aether::IDComponent>(newZombie).ID;
     {
         Aether::BodyConfig cfg;
         cfg.motionType  = Aether::MotionType::Kinematic;
         cfg.shape       = Aether::ColliderShape::Capsule;
         cfg.size        = glm::vec3(0.35f, 0.9f, 0.0f);
         cfg.transform   = { position, glm::quat(1,0,0,0) };
+        cfg.offset = glm::vec3(0.0f, 1.0f, 0.0f);
         Aether::PhysicsSystem::CreateBody(bodyID, cfg);
         
-        // Lưu ý: Nếu Engine báo lỗi bodyID, hãy đổi thành BodyID hoặc dùng đúng hàm AddComponent
-        auto& col = m_Scene.AddComponent<Aether::ColliderComponent>(newZombie);
-        col.BodyID = bodyID; 
-        col.Visible = true;
+        auto& col = m_Scene.AddComponent<Aether::ColliderComponent>(newZombie, bodyID, cfg.shape, cfg.size, glm::vec3(0.0f, 1.0f, 0.0f));
+        //col.Visible = true;
     }
 
     // 5. Quản lý
-    m_ZombieAnimators[newZombie] = newAnimID;
+    m_ZombieAnimators[newZombie] = newAnimID; 
     m_ZombieBodyIDs[newZombie]   = bodyID;
     m_ActiveZombies.push_back(newZombie);
 
@@ -942,16 +929,36 @@ void MainGameLayer::OnImGuiRender()
     // Tạo một cửa sổ trong suốt không tiêu đề
     ImGui::Begin("AmmoDisplay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
     
-    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "WEAPON: ASSAULT RIFLE"); // Tên súng (bạn có thể thay đổi)
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "WEAPON: PISTOL"); 
     
     if (m_IsReloading) {
         ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "RELOADING...");
     } else {
-        // Hiển thị: 30 / INF (Đạn vô tận)
+        // --- ĐOẠN CẦN CHỈNH SỬA ---
         std::string ammoText = std::to_string(m_CurrentAmmo) + " / INF";
-        ImGui::SetWindowFontScale(1.5f); // Làm chữ to hơn
-        ImGui::Text("%s", ammoText.c_str());
-        ImGui::SetWindowFontScale(1.0f);
+        
+        ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // Mặc định màu trắng
+        float offsetY = 0.0f;
+
+        if (m_CurrentAmmo == 0) {
+            color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Chuyển sang MÀU ĐỎ khi hết đạn
+            
+            if (m_AmmoEmptyTimer > 0.0f) {
+                // Tính toán độ nảy: dùng abs(sin) để luôn nhảy lên trên, 
+                // nhân với m_AmmoEmptyTimer để biên độ nhỏ dần rồi dừng hẳn.
+                // 20.0f là tốc độ nhảy, 15.0f là độ cao cú nhảy (bạn có thể tự set lại)
+                offsetY = -glm::abs(glm::sin(m_AmmoEmptyTimer * 20.0f)) * 15.0f * m_AmmoEmptyTimer;
+            }
+        }
+
+        ImGui::SetWindowFontScale(1.5f);
+        
+        // Đẩy vị trí vẽ dòng chữ lên trên theo offsetY
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY); 
+        
+        ImGui::TextColored(color, "%s", ammoText.c_str());
+        
+        ImGui::SetWindowFontScale(1.5f);
     }
     ImGui::End();
 
@@ -1106,7 +1113,6 @@ void MainGameLayer::DrawLightingPanel()
 
     if (ImGui::CollapsingHeader("Atmosphere & Fog", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::Checkbox("Enable Fog", &m_EnableFog);
         ImGui::ColorEdit3("Fog Color", glm::value_ptr(m_FogColor));
         ImGui::SliderFloat("Fog Density", &m_VolDensity, 0.0f, 0.1f);
         ImGui::SliderFloat("Fog Intensity", &m_VolIntensity, 0.0f, 5.0f);
@@ -1186,77 +1192,35 @@ void MainGameLayer::OnEvent(Aether::Event& event)
                 return; 
             }
             if (m_CurrentAmmo <= 0) {
+                m_AmmoEmptyTimer = 1.0f;
                 AE_WARN("Out of ammo! Press R");
                 return;
             }
             m_CurrentAmmo--;
-            // Kiểm tra an toàn thực thể Súng
+            if (m_CurrentAmmo == 0) {
+                m_AmmoEmptyTimer = 1.0f; // Khi vừa hết đạn, cho nó nhảy trong 1 giây
+            }
+
             if (!m_Scene.IsValid(m_Gun)) return;
+            auto rigSystem = Aether::AnimationSystem::GetModule<Aether::RigModule>();
+            rigSystem->Play(m_ShootAnimation);
 
-            auto& gTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Gun);
-            glm::vec3 camPos = m_Camera.GetPosition();
-            glm::vec3 camDir = m_Camera.GetForwardDirection();
-            
+            glm::vec3 origin = m_Camera.GetPosition();
+            glm::vec3 direction = glm::normalize(m_Camera.GetForwardDirection());
             float maxRange = 100.0f;
-            glm::vec3 targetPoint = camPos + (camDir * maxRange);
 
-            Aether::Entity hitZombie = Aether::Null_Entity;
-            float minDist = maxRange;
+            Aether::RaycastHit hit = Aether::PhysicsSystem::CastRay(origin, direction, maxRange);
 
-            // --- Duyệt tìm Zombie (An toàn) ---
-            for (Aether::Entity zombie : m_ActiveZombies) {
-                if (!m_Scene.IsValid(zombie)) continue; 
-
-                auto& zT = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
-                glm::vec3 zCenter = zT.Translation + glm::vec3(0.0f, 1.2f, 0.0f);
-                
-                glm::vec3 vecToZ = zCenter - camPos;
-                float dAlongRay = glm::dot(vecToZ, camDir);
-                
-                if (dAlongRay > 0.0f && dAlongRay < minDist) {
-                    float dToRay = glm::length(vecToZ - (camDir * dAlongRay));
-                    if (dToRay < 0.6f) {
-                        minDist = dAlongRay;
-                        hitZombie = zombie;
-                        targetPoint = camPos + (camDir * minDist);
-                    }
+            if (hit.Hit)
+            {
+                Aether::Entity entity = m_Scene.FindEntity(hit.HitEntityID);
+                if (entity != Aether::Null_Entity && entity != m_Player)
+                {
+                    DestroyHierarchy(entity);
+                    m_ActiveZombies.erase(std::remove(m_ActiveZombies.begin(),m_ActiveZombies.end(),entity),m_ActiveZombies.end());
                 }
             }
 
-            // --- Tạo tia đạn ---
-            glm::vec3 muzzlePos = gTransform.Translation + (gTransform.Rotation * m_MuzzleOffset);
-            Aether::Entity laser = m_Scene.CreateEntity("LaserBeam");
-            auto& lt = m_Scene.GetComponent<Aether::TransformComponent>(laser);
-            
-            lt.Translation = (muzzlePos + targetPoint) * 0.5f;
-            glm::vec3 laserDir = glm::normalize(targetPoint - muzzlePos);
-            lt.Rotation = glm::quatLookAt(laserDir, glm::vec3(0, 1, 0));
-            
-            float beamLength = glm::length(targetPoint - muzzlePos);
-            lt.Scale = glm::vec3(0.01f, 0.01f, beamLength);
-
-            auto laserMat = Aether::Material::Create();
-            laserMat->AddVec4("u_Color", glm::vec4(20.0f, 5.0f, 1.0f, 1.0f)); 
-            
-            auto& lMesh = m_Scene.AddComponent<Aether::MeshComponent>(laser);
-            
-            // LẤY MESH AN TOÀN
-            if (m_Scene.HasComponent<Aether::MeshComponent>(m_Gun)) {
-                lMesh.MeshPtr = m_Scene.GetComponent<Aether::MeshComponent>(m_Gun).MeshPtr;
-            } else {
-                lMesh.MeshPtr = m_BaseMapMesh; // Backup nếu súng không có mesh
-            }
-            lMesh.Materials = { laserMat };
-
-            m_TempEffects.push_back({ laser, 0.04f });
-
-            // --- XỬ LÝ XÓA ZOMBIE (Sửa lỗi tràn mảng/hỏng iterator) ---
-            if (hitZombie != Aether::Null_Entity) {
-                // Xóa thực thể trong Scene trước
-                DestroyHierarchy(hitZombie);
-                // Xóa khỏi danh sách theo kiểu Remove-Erase idiom (An toàn nhất)
-                m_ActiveZombies.erase(std::remove(m_ActiveZombies.begin(), m_ActiveZombies.end(), hitZombie), m_ActiveZombies.end());
-            }
 
             event.Handled = true;
         }
