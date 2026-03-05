@@ -60,7 +60,11 @@ private:
     float m_bobSpeed    = 6.0f;
     float m_bobStrength = 0.1f;
 
-    float yFloor = -7.0f;
+    float yFloor = -7.6f;
+
+    float m_PlayerHealth = 100.0f;    // Máu hiện tại
+    float m_MaxHealth = 100.0f;       // Máu tối đa
+    float m_DamageCooldown = 1.0f;    // Thời gian chờ giữa các lần bị cắn (để không chết ngay lập tức)
 
     // --- Zombies ---
     struct ZombieRecord {
@@ -126,6 +130,7 @@ private:
     Aether::Ref<Aether::Mesh>                  m_BaseMapMesh;
     std::vector<Aether::Ref<Aether::Material>> m_BaseMapMaterials;
 
+    glm::vec2 m_HealthBarPos = { 20.0f, 20.0f }; // Vị trí mặc định
     void DrawRadar();
 
     // --- Rendering ---
