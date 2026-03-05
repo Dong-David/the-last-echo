@@ -29,12 +29,12 @@ public:
 
 private:
     void UpdateMapChunks(const glm::vec3& playerPos);
-    void DestroyHierarchy(Aether::Entity entity);
 
     void DrawHierarchyPanel();
     void DrawEntityNode(Aether::Entity entity);
     void DrawScenePanel();
     void DrawLightingPanel();
+    bool WorldToScreen(const glm::vec3& worldPos, const glm::mat4& viewProj, ImVec2 displaySize, ImVec2& outScreen);
 
 private:
     // --- Core ---
@@ -47,16 +47,20 @@ private:
     Aether::Entity m_SunLight       = Aether::Null_Entity;
     Aether::Entity m_SelectedEntity = Aether::Null_Entity;
 
+    bool m_ShowFlowFieldDebug = false;
+
+
     // --- Player ---
     Aether::Entity m_Player         = Aether::Null_Entity;
     Aether::UUID   m_RunAnimation   = 0;
     float          m_PlayerSpeed    = 10.0f;
-    glm::vec3 m_PlayerVelocity = glm::vec3(0.0f);
     bool           m_IsPlayerMoving = false;
     Aether::UUID   m_PlayerBodyID   = 0;
 
-    float m_bobSpeed    = 12.0f;
-    float m_bobStrength = 0.08f;
+    float m_bobSpeed    = 6.0f;
+    float m_bobStrength = 0.1f;
+
+    float yFloor = -7.0f;
 
     // --- Zombies ---
     struct ZombieRecord {
@@ -68,14 +72,23 @@ private:
     std::vector<Aether::Entity>                m_ActiveZombies;
     std::map<Aether::Entity, ZombieRecord>     m_ZombieRegistry;
     Aether::UUID  m_ZombieRunAnimation = 0;
-    float         m_ZombieSpeed        = 3.5f;
+    float         m_ZombieSpeed        = 4.5f;
     Aether::Entity SpawnZombie(const glm::vec3& position);
 
+    int maxZombies = 100;
     // --- Flow Field ---
     std::map<std::pair<int, int>, FlowCell> m_FlowField;
-    float m_PathGridSize   = 1.0f;
+    float m_PathGridSize = 1.0f;
+    int   m_FlowFieldSubdivisions = 16;
     float m_FlowFieldTimer = 0.0f;
     void UpdateFlowField(const glm::vec3& targetPos);
+
+    float GetCellValue(int coordX, int coordZ) const;
+    int   GetObstacleCost(int coordX, int coordZ) const;
+    bool  IsObstacle(const glm::vec3& worldPos) const;
+    bool  IsObstacleWithRadius(const glm::vec3& worldPos) const; // uses k_CapsuleRadius + k_CollisionSkin
+    float GetSpeedMultiplier(const glm::vec3& worldPos) const;
+
 
     // --- Gun ---
     Aether::Entity m_Gun = Aether::Null_Entity;
@@ -95,22 +108,25 @@ private:
     float m_ReloadTimer    = 0.0f;
     float m_ReloadDuration = 2.5f;
     float m_ReloadRotation = 0.0f;
-    float m_AmmoEmptyTimer = 0.0f;
+    float m_AmmoEmptyTimer = 0.0f;  // Bộ đếm thời gian (tính bằng giây) để chạy hiệu ứng nhảy
 
     // --- Dynamic Map ---
-    float m_ChunkSize             = 2.0f;
-    int   m_BaseRenderDistance    = 15;
+    float m_ChunkSize             = 16.0f;
+    int   m_BaseRenderDistance    = 5;
     float m_ZoomInfluence         = 5.0f;
-    int   m_CurrentRenderDistance = 15;
+    int   m_CurrentRenderDistance = 5;
 
     struct ChunkData {
         Aether::Entity              landEntity = Aether::Null_Entity;
         std::vector<Aether::Entity> zombies;
-    };
+        int                         rotation = 0; // 0-3 (multiples of 90)
+    };  
     std::map<std::pair<int, int>, ChunkData> m_ActiveChunks;
 
-    Aether::Ref<Aether::Mesh>     m_BaseMapMesh;
-    Aether::Ref<Aether::Material> m_BaseMapMaterial;
+    Aether::Ref<Aether::Mesh>                  m_BaseMapMesh;
+    std::vector<Aether::Ref<Aether::Material>> m_BaseMapMaterials;
+
+    void DrawRadar();
 
     // --- Rendering ---
     float m_ShadowBias  = 0.00001f;
@@ -129,4 +145,33 @@ private:
     float     m_FogDensity = 0.03f;
     float     m_FogStart   = 10.0f;
     float     m_FogEnd     = 80.0f;
+
+    Aether::UUID m_GunSound;
+    std::vector<Aether::UUID> sources;
+
+    float m_ShootTimer    = 0.0f;
+    float m_ShootDuration = 0.3f;
+
+    // hardcode matrix — 0: free, 0.5: slow zone (building edge), 1: solid wall
+    static constexpr int   k_ObstacleMapSize = 16;
+    static constexpr float k_CapsuleRadius   = 0.35f;
+    static constexpr float k_CollisionSkin   = 0.15f; // extra margin so block triggers before touching wall
+    float m_ObstacleMap[k_ObstacleMapSize][k_ObstacleMapSize] = {
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 0
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 1
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0},  // row 2
+        {0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    0.5f, 0,    0},  // row 3
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    0.5f, 0,    0},  // row 4
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    0.5f, 0,    0},  // row 5
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    0.5f, 0,    0},  // row 6
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    0.5f, 0,    0},  // row 7
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0},  // row 8
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 9
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 10
+        {0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 11
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0},  // row 12
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 1,    1,    1,    0.5f, 0},  // row 13
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 1,    1,    1,    0.5f, 0},  // row 14
+        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0},  // row 15
+    };
 };
