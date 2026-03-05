@@ -215,10 +215,17 @@ void MainGameLayer::Update(Aether::Timestep ts)
         if (glm::length(camRight) > 0.0f) camRight = glm::normalize(camRight);
 
         glm::vec3 moveDir(0.0f);
-        if (Aether::Input::IsKeyPressed(Aether::Key::W)) moveDir += camForward;
-        if (Aether::Input::IsKeyPressed(Aether::Key::S)) moveDir -= camForward;
-        if (Aether::Input::IsKeyPressed(Aether::Key::A)) moveDir -= camRight;
-        if (Aether::Input::IsKeyPressed(Aether::Key::D)) moveDir += camRight;
+        if (m_PlayerHealth > 0.0f) // Thêm điều kiện này bao bọc logic di chuyển
+        {
+            if (Aether::Input::IsKeyPressed(Aether::Key::W)) moveDir += camForward;
+            if (Aether::Input::IsKeyPressed(Aether::Key::S)) moveDir -= camForward;
+            if (Aether::Input::IsKeyPressed(Aether::Key::A)) moveDir -= camRight;
+            if (Aether::Input::IsKeyPressed(Aether::Key::D)) moveDir += camRight;
+        }
+        else 
+        {
+            pTransform.Translation.y = yFloor;
+        }
 
         bool isMoving = glm::length(moveDir) > 0.0f;
 
@@ -300,7 +307,8 @@ void MainGameLayer::Update(Aether::Timestep ts)
         {
             pTransform.Scale = { 1.0f, 1.0f, 1.0f };
             glm::vec3 shoulderOffset = m_Camera.GetRightDirection() * 0.5f;
-            m_Camera.SetFocalPoint(playerTopPos + shoulderOffset);
+            glm::vec3 stablePlayerPos = pTransform.Translation + glm::vec3(0.0f, 1.5f, 0.0f); // 1.5f là chiều cao cố định
+            m_Camera.SetFocalPoint(stablePlayerPos + shoulderOffset);
 
             if (m_LockCamera) {
                 m_Camera.SetDistance(5.0f);
@@ -538,6 +546,53 @@ void MainGameLayer::Update(Aether::Timestep ts)
             sources.pop_back();   
         }
         else i++;
+    }
+
+    // --- Logic Máu Player ---
+    if (m_DamageCooldown > 0.0f)
+        m_DamageCooldown -= ts; // Giảm thời gian chờ theo thời gian thực
+
+    if (m_Scene.IsValid(m_Player) && m_DamageCooldown <= 0.0f)
+    {
+        auto& pPos = m_Scene.GetComponent<Aether::TransformComponent>(m_Player).Translation;
+
+        for (auto zombie : m_ActiveZombies)
+        {
+            if (!m_Scene.IsValid(zombie)) continue;
+
+            auto& zPos = m_Scene.GetComponent<Aether::TransformComponent>(zombie).Translation;
+            float dist = glm::distance(pPos, zPos);
+
+            // Nếu zombie cách player dưới 1.5 mét thì cắn
+            if (dist < 1.5f) 
+            {
+                m_PlayerHealth -= 10.0f; // Mỗi lần cắn mất 10 máu
+                m_DamageCooldown = 1.0f; // 1 giây sau mới cho cắn tiếp (cooldown)
+                
+                AE_WARN("Player bi can! Mau con: {0}", m_PlayerHealth);
+                break; // Thoát vòng lặp để 1 frame chỉ bị 1 con cắn
+            }
+        }
+    }
+
+    // Kiểm tra nếu hết máu
+    if (m_PlayerHealth <= 0.0f)
+    {
+        // Hiển thị thông báo hoặc chờ bấm nút
+        if (Aether::Input::IsKeyPressed(Aether::Key::R))
+        {
+            // 1. Reset chỉ số
+            m_PlayerHealth = 100.0f;
+            
+            // 2. Reset vị trí về tọa độ gốc (hoặc điểm spawn)
+            auto& pTrans = m_Scene.GetComponent<Aether::TransformComponent>(m_Player);
+            pTrans.Translation = glm::vec3(0.0f, yFloor, 0.0f);
+            
+            // 3. Reset Camera (nếu cần)
+            m_Camera.SetDistance(6.0f);
+            
+            AE_INFO("Player Resurrected!");
+        }
     }
 
     m_Scene.Update(ts, &m_Camera);
@@ -1099,6 +1154,32 @@ void MainGameLayer::OnImGuiRender()
         }
     }
 
+    // --- UI Thanh Máu ---
+    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Status", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground);
+    {
+        ImGui::Text("PLAYER HP");
+        
+        // Tính toán màu sắc: Máu đầy thì xanh, máu thấp thì đỏ
+        float hpFraction = m_PlayerHealth / m_MaxHealth;
+        ImVec4 hpColor = ImVec4(1.0f - hpFraction, hpFraction, 0.0f, 1.0f); 
+        
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hpColor);
+        ImGui::ProgressBar(hpFraction, ImVec2(200, 20), ""); // Vẽ thanh máu dài 200px
+        ImGui::PopStyleColor();
+    }
+    ImGui::End();
+
+    if (m_PlayerHealth <= 0.0f)
+    {
+        ImGui::Begin("Game Over", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::SetWindowFontScale(2.0f);
+        ImGui::TextColored(ImVec4(1, 0, 0, 1), "YOU DIED!");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::Text("Press 'R' to Respawn");
+        ImGui::End();
+    }
+
     DrawRadar();
 }
 
@@ -1307,7 +1388,7 @@ void MainGameLayer::DrawRadar()
     const float maxTrackDistance = 50.0f;
 
     // Thiết lập vị trí Radar trên màn hình ImGui
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver); 
+    ImGui::SetNextWindowPos(ImVec2(m_HealthBarPos.x, m_HealthBarPos.y), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Radar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImDrawList* drawList = ImGui::GetWindowDrawList();
