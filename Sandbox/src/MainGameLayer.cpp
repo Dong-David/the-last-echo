@@ -14,6 +14,9 @@ MainGameLayer::MainGameLayer()
 
 void MainGameLayer::Attach()
 {
+    std::ifstream in("save.dat", std::ios::binary);
+    if (in) in.read((char*)&m_HighScore, sizeof(m_HighScore));
+
     ImGuiContext* ctx = Aether::ImGuiLayer::GetContext();
     if (ctx) ImGui::SetCurrentContext(ctx);
 
@@ -326,7 +329,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
         }
 
         // --- RELOAD LOGIC ---
-        if (Aether::Input::IsKeyPressed(Aether::Key::R) && !m_IsReloading && m_CurrentAmmo < m_MaxAmmo) 
+        if (Aether::Input::IsKeyPressed(Aether::Key::R) && !m_IsReloading && m_CurrentAmmo < m_MaxAmmo && m_PlayerHealth > 0.0f) 
         {
             m_IsReloading = true;
             m_ReloadTimer = m_ReloadDuration;
@@ -592,6 +595,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
         if (Aether::Input::IsKeyPressed(Aether::Key::Space) || 
             Aether::Input::IsMouseButtonPressed(Aether::Mouse::ButtonLeft))
         {
+            m_ZombiesKilled = 0;
             // 1. Reset chỉ số
             m_PlayerHealth = 100.0f;
             
@@ -1243,6 +1247,22 @@ void MainGameLayer::OnImGuiRender()
             IM_COL32(200, 200, 200, 220), respawnText);
     }
 
+    // 1. Chỉ thiết lập vị trí (20, 20) TRONG LẦN ĐẦU TIÊN mở game (Appears once)
+    // Sau đó người chơi kéo đi đâu thì ImGui sẽ tự nhớ vị trí đó trong file imgui.ini
+    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver); 
+
+    // 2. Loại bỏ NoDecoration để có thể kéo, hoặc chỉ giữ lại những thứ cần thiết
+    // Mình bỏ NoDecoration và NoInputs để bạn có thể tương tác (kéo) được
+    ImGui::Begin("ScoreBoard", nullptr, 
+        ImGuiWindowFlags_AlwaysAutoResize | 
+        ImGuiWindowFlags_NoBackground | 
+        ImGuiWindowFlags_NoTitleBar); // Ẩn thanh tiêu đề nhưng vẫn kéo được nếu click vào vùng trống
+
+    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "KILLS: %u", m_ZombiesKilled);
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "HIGH SCORE: %u", m_HighScore);
+
+    ImGui::End();
+
     DrawRadar();
 }
 
@@ -1418,6 +1438,22 @@ void MainGameLayer::OnEvent(Aether::Event& event)
             Aether::Entity target = m_Scene.FindEntity(hit.HitEntityID);
             if (target != Aether::Null_Entity && target != m_Player)
             {
+                // 1. Tăng số lượng diệt
+                m_ZombiesKilled++; 
+
+                // 2. Cập nhật High Score và chỉ lưu khi có kỷ lục mới
+                if (m_ZombiesKilled > m_HighScore) {
+                    m_HighScore = m_ZombiesKilled;
+                    
+                    // Chỉ lưu khi phá kỷ lục để tối ưu hiệu năng
+                    std::ofstream out("save.dat", std::ios::binary);
+                    if (out.is_open()) {
+                        out.write((char*)&m_HighScore, sizeof(m_HighScore));
+                        out.close();
+                    }
+                }
+
+                // 3. Logic xóa Zombie (giữ nguyên của bạn)
                 auto& rec = m_ZombieRegistry[target];
                 Aether::PhysicsSystem::DestroyBody(rec.bodyID);
                 m_Scene.DestroyHierarchy(target);
