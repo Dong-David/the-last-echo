@@ -79,6 +79,10 @@ private:
     Aether::Entity SpawnZombie(const glm::vec3& position);
 
     int maxZombies = 100;
+
+    uint32_t m_ZombiesKilled = 0; // Số zom diệt trong lượt này
+    uint32_t m_HighScore = 0;      // Kỷ lục lưu lại
+    
     // --- Flow Field ---
     std::map<std::pair<int, int>, FlowCell> m_FlowField;
     float m_PathGridSize = 1.0f;
