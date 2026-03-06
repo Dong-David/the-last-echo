@@ -155,14 +155,17 @@ void MainGameLayer::Attach()
 
     m_MuzzleFlashTexture = Aether::Texture2D::Create("assets/models/tiadan.png");
 
-    Aether::PhysicsSystem::SetGravity({ 0.0f, 0.0f, 0.0f });
+    Aether::PhysicsSystem::SetGravity({ 0.0f, 0.0f, 0.0f }); 
 
     Aether::UUID bgmID, sound;
     Aether::AudioSystem::AddSound(sound, "assets/audio/Hatsune Miku - Ievan Polkka.mp3");
     Aether::AudioSystem::CreateSource(bgmID, sound, Aether::AudioType::Audio2D);
+    Aether::AudioSystem::SetLooping(bgmID, true);
     Aether::AudioSystem::Play(bgmID);
 
     Aether::AudioSystem::AddSound(m_GunSound, "assets/audio/pistol.mp3");
+    Aether::AudioSystem::AddSound(m_GunReload, "assets/audio/pistol_reload.mp3");
+    Aether::AudioSystem::AddSound(m_ZombieBite, "assets/audio/zombie_bite.mp3");
 
     AE_CORE_INFO("MainGameLayer started.");
 }
@@ -323,9 +326,13 @@ void MainGameLayer::Update(Aether::Timestep ts)
         }
 
         // --- RELOAD LOGIC ---
-        if (Aether::Input::IsKeyPressed(Aether::Key::R) && !m_IsReloading && m_CurrentAmmo < m_MaxAmmo) {
+        if (Aether::Input::IsKeyPressed(Aether::Key::R) && !m_IsReloading && m_CurrentAmmo < m_MaxAmmo) 
+        {
             m_IsReloading = true;
             m_ReloadTimer = m_ReloadDuration;
+            Aether::UUID src; Aether::AudioSystem::CreateSource(src, m_GunReload, Aether::AudioType::Audio2D);
+            Aether::AudioSystem::Play(src);
+            sources.push_back(src);
             AE_INFO("Reloading...");
         }
 
@@ -552,7 +559,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
     if (m_DamageCooldown > 0.0f)
         m_DamageCooldown -= ts; // Giảm thời gian chờ theo thời gian thực
 
-    if (m_Scene.IsValid(m_Player) && m_DamageCooldown <= 0.0f)
+    if (m_Scene.IsValid(m_Player) && m_PlayerHealth > 0.0f && m_DamageCooldown <= 0.0f)
     {
         auto& pPos = m_Scene.GetComponent<Aether::TransformComponent>(m_Player).Translation;
 
@@ -568,6 +575,9 @@ void MainGameLayer::Update(Aether::Timestep ts)
             {
                 m_PlayerHealth -= 10.0f; // Mỗi lần cắn mất 10 máu
                 m_DamageCooldown = 1.0f; // 1 giây sau mới cho cắn tiếp (cooldown)
+
+                Aether::UUID src; Aether::AudioSystem::CreateSource(src, m_ZombieBite, Aether::AudioType::Audio2D);
+                Aether::AudioSystem::Play(src); sources.push_back(src);
                 
                 AE_WARN("Player bi can! Mau con: {0}", m_PlayerHealth);
                 break; // Thoát vòng lặp để 1 frame chỉ bị 1 con cắn
@@ -1154,30 +1164,82 @@ void MainGameLayer::OnImGuiRender()
         }
     }
 
-    // --- UI Thanh Máu ---
-    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Status", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground);
+    // --- UI Thanh Máu (drawn directly on screen, no ImGui window) ---
     {
-        ImGui::Text("PLAYER HP");
-        
-        // Tính toán màu sắc: Máu đầy thì xanh, máu thấp thì đỏ
-        float hpFraction = m_PlayerHealth / m_MaxHealth;
-        ImVec4 hpColor = ImVec4(1.0f - hpFraction, hpFraction, 0.0f, 1.0f); 
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hpColor);
-        ImGui::ProgressBar(hpFraction, ImVec2(200, 20), ""); // Vẽ thanh máu dài 200px
-        ImGui::PopStyleColor();
-    }
-    ImGui::End();
+        ImDrawList* hudDraw = ImGui::GetForegroundDrawList();
+        ImGuiViewport* vp   = ImGui::GetMainViewport();
 
+        const float barX      = vp->Pos.x + 30.0f;
+        const float barY      = vp->Pos.y + 40.0f;
+        const float barW      = 200.0f;
+        const float barH      = 18.0f;
+        const float barRadius = 4.0f;
+
+        float hpFraction = glm::clamp(m_PlayerHealth / m_MaxHealth, 0.0f, 1.0f);
+
+        // Background track
+        hudDraw->AddRectFilled(ImVec2(barX, barY),
+                               ImVec2(barX + barW, barY + barH),
+                               IM_COL32(30, 30, 30, 180), barRadius);
+
+        // Filled portion — green → red based on HP
+        ImU32 fillColor = IM_COL32(
+            (ImU8)((1.0f - hpFraction) * 255),
+            (ImU8)(hpFraction           * 220),
+            0, 220);
+        if (hpFraction > 0.0f)
+            hudDraw->AddRectFilled(ImVec2(barX, barY),
+                                   ImVec2(barX + barW * hpFraction, barY + barH),
+                                   fillColor, barRadius);
+
+        // Border
+        hudDraw->AddRect(ImVec2(barX, barY),
+                         ImVec2(barX + barW, barY + barH),
+                         IM_COL32(180, 180, 180, 200), barRadius, 0, 1.5f);
+
+        // Numeric HP text centred inside bar
+        char hpBuf[32];
+        snprintf(hpBuf, sizeof(hpBuf), "%.0f / %.0f", m_PlayerHealth, m_MaxHealth);
+        ImVec2 textSz = ImGui::CalcTextSize(hpBuf);
+        float hpFontSize = 20.0f; // Chỉnh kích thước bạn muốn ở đây (mặc định thường là 13-15)
+
+        // Vẽ chữ PLAYER HP với kích thước tùy chỉnh
+        hudDraw->AddText(
+            ImGui::GetFont(), 
+            hpFontSize, 
+            ImVec2(barX, barY - hpFontSize - 2.0f), // Điều chỉnh tọa độ Y dựa trên cỡ chữ để nó luôn nằm sát phía trên thanh máu
+            IM_COL32(220, 220, 220, 230), 
+            "PLAYER HP"
+        );
+    }
+
+    // --- Game Over overlay ---
     if (m_PlayerHealth <= 0.0f)
     {
-        ImGui::Begin("Game Over", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::SetWindowFontScale(2.0f);
-        ImGui::TextColored(ImVec4(1, 0, 0, 1), "YOU DIED!");
-        ImGui::SetWindowFontScale(1.0f);
-        ImGui::Text("Press 'R' to Respawn");
-        ImGui::End();
+        ImDrawList* hudDraw = ImGui::GetForegroundDrawList();
+        ImGuiViewport* vp   = ImGui::GetMainViewport();
+        ImVec2 scrCenter    = ImVec2(vp->Pos.x + vp->Size.x * 0.5f,
+                                     vp->Pos.y + vp->Size.y * 0.5f);
+
+        // Dark vignette panel
+        hudDraw->AddRectFilled(ImVec2(scrCenter.x - 200, scrCenter.y - 70),
+                               ImVec2(scrCenter.x + 200, scrCenter.y + 70),
+                               IM_COL32(0, 0, 0, 180), 10.0f);
+        hudDraw->AddRect(ImVec2(scrCenter.x - 200, scrCenter.y - 70),
+                         ImVec2(scrCenter.x + 200, scrCenter.y + 70),
+                         IM_COL32(200, 0, 0, 200), 10.0f, 0, 2.0f);
+
+        const char* diedText    = "YOU DIED!";
+        const char* respawnText = "Press 'R' to Respawn";
+        ImVec2 sz1 = ImGui::CalcTextSize(diedText);
+        ImVec2 sz2 = ImGui::CalcTextSize(respawnText);
+
+        hudDraw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 2.0f,
+            ImVec2(scrCenter.x - sz1.x, scrCenter.y - 40.0f),
+            IM_COL32(220, 0, 0, 255), diedText);
+        hudDraw->AddText(
+            ImVec2(scrCenter.x - sz2.x * 0.5f, scrCenter.y + 20.0f),
+            IM_COL32(200, 200, 200, 220), respawnText);
     }
 
     DrawRadar();
@@ -1317,7 +1379,7 @@ void MainGameLayer::OnEvent(Aether::Event& event)
 
     // LMB: shoot
     if (event.GetEventType() == Aether::EventType::MouseButtonPressed &&
-        Aether::Input::IsMouseButtonPressed(Aether::Mouse::Button0))
+        Aether::Input::IsMouseButtonPressed(Aether::Mouse::Button0) && m_PlayerHealth > 0.0f)
     {
         if (m_IsReloading) { 
             AE_WARN("Cant shoot while reloading!");
@@ -1382,62 +1444,97 @@ bool MainGameLayer::WorldToScreen(const glm::vec3& worldPos, const glm::mat4& vi
 
 void MainGameLayer::DrawRadar()
 {
-    // Khai báo các thông số cố định
-    const float radarSize = 200.0f;
-    const float radarRadius = radarSize / 2.0f;
+    const float radarSize        = 200.0f;
+    const float radarRadius      = radarSize / 2.0f;
     const float maxTrackDistance = 50.0f;
 
-    // Thiết lập vị trí Radar trên màn hình ImGui
-    ImGui::SetNextWindowPos(ImVec2(m_HealthBarPos.x, m_HealthBarPos.y), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Radar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
+    ImDrawList*    drawList = ImGui::GetForegroundDrawList();
+    ImGuiViewport* vp       = ImGui::GetMainViewport();
+
+    // Anchor: bottom-left corner of the viewport
+    float cx = vp->Pos.x + 20.0f + radarRadius;
+    float cy = vp->Pos.y + vp->Size.y - 20.0f - radarRadius;
+    ImVec2 center(cx, cy);
+
+    // Background circle
+    drawList->AddCircleFilled(center, radarRadius, IM_COL32(10, 30, 10, 200));
+    drawList->AddCircle(center, radarRadius, IM_COL32(0, 255, 0, 255), 64, 2.0f);
+
+    // Inner ring guides
+    drawList->AddCircle(center, radarRadius * 0.5f, IM_COL32(0, 180, 0, 80), 64, 1.0f);
+
+    // Cross-hair lines inside radar
+    drawList->AddLine(ImVec2(center.x - radarRadius, center.y),
+                      ImVec2(center.x + radarRadius, center.y),
+                      IM_COL32(0, 180, 0, 60), 1.0f);
+    drawList->AddLine(ImVec2(center.x, center.y - radarRadius),
+                      ImVec2(center.x, center.y + radarRadius),
+                      IM_COL32(0, 180, 0, 60), 1.0f);
+
+    if (m_Scene.IsValid(m_Player))
     {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        ImVec2 center = ImVec2(p.x + radarRadius, p.y + radarRadius);
+        auto& pTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Player);
+        glm::vec3 pPos   = pTransform.Translation;
 
-        // Vẽ nền radar (vòng tròn xanh đặc trưng tàu chiến)
-        drawList->AddCircleFilled(center, radarRadius, IM_COL32(10, 30, 10, 200));
-        drawList->AddCircle(center, radarRadius, IM_COL32(0, 255, 0, 255), 32, 2.0f);
+        float angle = -m_Camera.GetYaw();
+        float cosA  = cosf(angle);
+        float sinA  = sinf(angle);
 
-        if (m_Scene.IsValid(m_Player))
+        for (auto zombie : m_ActiveZombies)
         {
-            auto& pTransform = m_Scene.GetComponent<Aether::TransformComponent>(m_Player);
-            glm::vec3 pPos = pTransform.Translation;
+            if (!m_Scene.IsValid(zombie)) continue;
 
-            // Lấy góc quay camera để radar xoay theo hướng người nhìn
-            float angle = -m_Camera.GetYaw(); 
-            float cosA = cosf(angle);
-            float sinA = sinf(angle);
+            auto& zTransform = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
+            glm::vec3 zPos   = zTransform.Translation;
 
-            for (auto zombie : m_ActiveZombies)
+            float relX = zPos.x - pPos.x;
+            float relZ = zPos.z - pPos.z;
+            float dist = sqrtf(relX * relX + relZ * relZ);
+
+            if (dist <= maxTrackDistance)
             {
-                if (!m_Scene.IsValid(zombie)) continue;
+                float rotatedX = relX * cosA - relZ * sinA;
+                float rotatedZ = relX * sinA + relZ * cosA;
 
-                auto& zTransform = m_Scene.GetComponent<Aether::TransformComponent>(zombie);
-                glm::vec3 zPos = zTransform.Translation;
+                float radarX = (rotatedX / maxTrackDistance) * radarRadius;
+                float radarY = (rotatedZ / maxTrackDistance) * radarRadius;
 
-                // TÍNH TOÁN (Đưa logic vào đây thì mới không bị lỗi undeclared)
-                float relX = zPos.x - pPos.x;
-                float relZ = zPos.z - pPos.z;
-                float dist = sqrtf(relX * relX + relZ * relZ);
-
-                if (dist <= maxTrackDistance)
-                {
-                    // Xoay tọa độ để radar luôn hướng về phía trước camera
-                    float rotatedX = relX * cosA - relZ * sinA;
-                    float rotatedZ = relX * sinA + relZ * cosA;
-
-                    float radarX = (rotatedX / maxTrackDistance) * radarRadius;
-                    float radarY = (rotatedZ / maxTrackDistance) * radarRadius;
-
-                    // Vẽ chấm đỏ Zombie
-                    drawList->AddCircleFilled(ImVec2(center.x + radarX, center.y + radarY), 3.0f, IM_COL32(255, 0, 0, 255));
+                // Clamp dots to the circle boundary
+                float dotDist = sqrtf(radarX * radarX + radarY * radarY);
+                if (dotDist > radarRadius - 3.0f) {
+                    float scale = (radarRadius - 3.0f) / dotDist;
+                    radarX *= scale;
+                    radarY *= scale;
                 }
+
+                drawList->AddCircleFilled(
+                    ImVec2(center.x + radarX, center.y + radarY),
+                    3.5f, IM_COL32(255, 50, 50, 255));
             }
-            // Vẽ Player (chấm trắng ở tâm)
-            drawList->AddCircleFilled(center, 4.0f, IM_COL32(255, 255, 255, 255));
         }
-        ImGui::Dummy(ImVec2(radarSize, radarSize)); // Giữ không gian cho radar
+
+        // Player dot at centre
+        drawList->AddCircleFilled(center, 5.0f, IM_COL32(255, 255, 255, 255));
+        // Small forward-direction triangle
+        drawList->AddTriangleFilled(
+            ImVec2(center.x,        center.y - 9.0f),
+            ImVec2(center.x - 4.0f, center.y + 4.0f),
+            ImVec2(center.x + 4.0f, center.y + 4.0f),
+            IM_COL32(100, 220, 255, 220));
     }
-    ImGui::End();
+
+    // Label
+    const char* label = "RADAR";
+    float fontSize = 24.0f; // <--- Chỉnh kích thước bạn muốn ở đây
+
+    // Quan trọng: CalcTextSize cũng cần biết fontSize để tính toán vị trí căn giữa chính xác
+    ImVec2 labelSz = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, label);
+
+    drawList->AddText(
+        ImGui::GetFont(), // Lấy font hiện tại
+        fontSize,         // Kích thước chữ
+        ImVec2(center.x - labelSz.x * 0.5f, cy - radarRadius - fontSize - 5.0f), 
+        IM_COL32(0, 220, 0, 200), 
+        label
+    );
 }
