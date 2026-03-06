@@ -202,6 +202,20 @@ void MainGameLayer::Update(Aether::Timestep ts)
     // Update camera first to get latest mouse-driven orientation
     m_Camera.Update(ts);
 
+    // --- 2. THÊM MỚI: Điều khiển camera 360 độ bằng phím mũi tên ---
+    // --- ĐIỀU KHIỂN CAMERA BẰNG PHÍM MŨI TÊN (360 ĐỘ) ---
+    float rotationSpeed = 2.0f; // Tốc độ xoay
+    if (Aether::Input::IsKeyPressed(Aether::Key::Left))
+    {
+        // Xoay sang trái
+        m_Camera.SetYaw(m_Camera.GetYaw() - rotationSpeed * ts);
+    }
+    if (Aether::Input::IsKeyPressed(Aether::Key::Right))
+    {
+        // Xoay sang phải
+        m_Camera.SetYaw(m_Camera.GetYaw() + rotationSpeed * ts);
+    }
+
     float camDistance = m_Camera.GetDistance();
     m_CurrentRenderDistance = m_BaseRenderDistance + static_cast<int>(camDistance / m_ZoomInfluence);
     m_CurrentRenderDistance = std::clamp(m_CurrentRenderDistance, 1, 30);
