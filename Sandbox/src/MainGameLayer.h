@@ -49,7 +49,6 @@ private:
 
     bool m_ShowFlowFieldDebug = false;
 
-
     // --- Player ---
     Aether::Entity m_Player         = Aether::Null_Entity;
     Aether::UUID   m_RunAnimation   = 0;
@@ -130,7 +129,6 @@ private:
     Aether::Ref<Aether::Mesh>                  m_BaseMapMesh;
     std::vector<Aether::Ref<Aether::Material>> m_BaseMapMaterials;
 
-    glm::vec2 m_HealthBarPos = { 20.0f, 20.0f }; // Vị trí mặc định
     void DrawRadar();
 
     // --- Rendering ---
@@ -152,6 +150,8 @@ private:
     float     m_FogEnd     = 80.0f;
 
     Aether::UUID m_GunSound;
+    Aether::UUID m_GunReload;
+    Aether::UUID m_ZombieBite;
     std::vector<Aether::UUID> sources;
 
     float m_ShootTimer    = 0.0f;
@@ -173,9 +173,9 @@ private:
         {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0},  // row 8
         {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 9
         {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 10
-        {0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 11
-        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0},  // row 12
-        {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 1,    1,    1,    0.5f, 0},  // row 13
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0},  // row 11
+        {0,    0,    0.5f, 1,    1,    0.5f, 0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0},  // row 12
+        {0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0,    0,    0,    0,    0.5f, 1,    1,    1,    0.5f, 0},  // row 13
         {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 1,    1,    1,    0.5f, 0},  // row 14
         {0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0},  // row 15
     };
