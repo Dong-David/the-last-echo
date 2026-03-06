@@ -589,7 +589,8 @@ void MainGameLayer::Update(Aether::Timestep ts)
     if (m_PlayerHealth <= 0.0f)
     {
         // Hiển thị thông báo hoặc chờ bấm nút
-        if (Aether::Input::IsKeyPressed(Aether::Key::R))
+        if (Aether::Input::IsKeyPressed(Aether::Key::Space) || 
+            Aether::Input::IsMouseButtonPressed(Aether::Mouse::ButtonLeft))
         {
             // 1. Reset chỉ số
             m_PlayerHealth = 100.0f;
@@ -1230,7 +1231,7 @@ void MainGameLayer::OnImGuiRender()
                          IM_COL32(200, 0, 0, 200), 10.0f, 0, 2.0f);
 
         const char* diedText    = "YOU DIED!";
-        const char* respawnText = "Press 'R' to Respawn";
+        const char* respawnText = "Press ANY KEY to Respawn";
         ImVec2 sz1 = ImGui::CalcTextSize(diedText);
         ImVec2 sz2 = ImGui::CalcTextSize(respawnText);
 
