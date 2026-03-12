@@ -15,13 +15,18 @@ MainGameLayer::MainGameLayer()
 void MainGameLayer::Attach()
 {
     std::ifstream in("save.dat", std::ios::binary);
-    if (in) in.read((char*)&m_HighScore, sizeof(m_HighScore));
+    if (in) {
+        in.read((char*)&m_HighScore, sizeof(m_HighScore));
+        in.read((char*)&m_ZombiesKilled, sizeof(m_ZombiesKilled)); // Đọc thêm biến này
+    }
+
+    m_ZombiesKilled = 0;
 
     ImGuiContext* ctx = Aether::ImGuiLayer::GetContext();
     if (ctx) ImGui::SetCurrentContext(ctx);
 
-    Aether::Renderer::SetLutMap(Aether::Texture2D::Create("assets/textures/LUT.png", Aether::WrapMode::CLAMP_TO_EDGE, false));
-    Aether::Renderer::SetSkyBox(Aether::TextureCube::Create("assets/textures/skybox.png"));
+    Aether::Renderer::SetLutMap("assets/textures/LUT.png");
+    Aether::Renderer::SetSkyBox("assets/textures/skybox.png");
 
     // --- SHADOW PASS ---
     Aether::FramebufferSpec shadowFbSpec;
@@ -34,9 +39,11 @@ void MainGameLayer::Attach()
     m_ShadowShader->SetUBOSlot("Bones", 1);
     m_ShadowShader->SetUBOSlot("Lights", 2);
 
+    m_ShadowFbo = Aether::FrameBuffer::Create(shadowFbSpec);
+
     Aether::RenderPass shadowPass;
-    shadowPass.TargetFBO = Aether::FrameBuffer::Create(shadowFbSpec);
-    shadowPass.Shader = m_ShadowShader;
+    shadowPass.TargetFBO = m_ShadowFbo.get();
+    shadowPass.Shader    = m_ShadowShader.get();
     shadowPass.ClearDepth = true;
     shadowPass.ClearColor = false;
     shadowPass.OnScreen = false;
@@ -57,9 +64,11 @@ void MainGameLayer::Attach()
     m_MainShader->SetUBOSlot("Bones", 1);
     m_MainShader->SetUBOSlot("Lights", 2);
 
+    m_MainFbo = Aether::FrameBuffer::Create(sceneFbSpec);
+
     Aether::RenderPass mainPass;
-    mainPass.TargetFBO = Aether::FrameBuffer::Create(sceneFbSpec);
-    mainPass.Shader = m_MainShader;
+    mainPass.TargetFBO   = m_MainFbo.get();
+    mainPass.Shader      = m_MainShader.get();
     mainPass.ClearColor = true;
     mainPass.ClearDepth = true;
     mainPass.UsingSkybox = true;
@@ -90,10 +99,10 @@ void MainGameLayer::Attach()
     // --- MAP ---
     auto uploadMap = Aether::Importer::Upload(Aether::Importer::Import("assets/models/map.glb"));
     if (!uploadMap.meshIDs.empty()) {
-        m_BaseMapMesh = Aether::AssetsManager::GetResource<Aether::Mesh>(uploadMap.meshIDs[0]);
+        m_BaseMapMesh = Aether::AssetManager::GetHandle(uploadMap.meshIDs[0]);
         if (uploadMap.matIDs.empty()) AE_ERROR("no material!");
         for (auto& matID : uploadMap.matIDs)
-            m_BaseMapMaterials.push_back(Aether::AssetsManager::GetResource<Aether::Material>(matID));
+            m_BaseMapMaterials.push_back(Aether::AssetManager::GetHandle(matID));
     }
 
     // --- PLAYER ---
@@ -160,21 +169,34 @@ void MainGameLayer::Attach()
 
     Aether::PhysicsSystem::SetGravity({ 0.0f, 0.0f, 0.0f }); 
 
-    Aether::UUID bgmID, sound;
-    Aether::AudioSystem::AddSound(sound, "assets/audio/Hatsune Miku - Ievan Polkka.mp3");
-    Aether::AudioSystem::CreateSource(bgmID, sound, Aether::AudioType::Audio2D);
-    Aether::AudioSystem::SetLooping(bgmID, true);
-    Aether::AudioSystem::Play(bgmID);
+    // 1. Khai báo ID cho nguồn phát (Source)
+    Aether::UUID bgmSrcID; 
 
-    Aether::AudioSystem::AddSound(m_GunSound, "assets/audio/pistol.mp3");
-    Aether::AudioSystem::AddSound(m_GunReload, "assets/audio/pistol_reload.mp3");
-    Aether::AudioSystem::AddSound(m_ZombieBite, "assets/audio/zombie_bite.mp3");
+    // 2. Nạp file nhạc vào AssetManager (Lưu vào m_BgmSoundID)
+    Aether::AssetManager::CreateAsset<Aether::Sound>(m_BgmSoundID, "assets/audio/Hatsune Miku - Ievan Polkka.mp3");
+
+    // 3. Tạo nguồn phát từ Asset đã nạp (Dùng m_BgmSoundID chứ không dùng biến 'sound' trống)
+    Aether::AudioSystem::CreateSource(bgmSrcID, m_BgmSoundID, Aether::AudioType::Audio2D);
+    Aether::AudioSystem::SetLooping(bgmSrcID, true);
+    Aether::AudioSystem::Play(bgmSrcID);
+
+    // 4. Nạp các hiệu ứng âm thanh khác (Sửa AudioSystem thành AssetManager)
+    Aether::AssetManager::CreateAsset<Aether::Sound>(m_GunSoundID, "assets/audio/pistol.mp3");
+    Aether::AssetManager::CreateAsset<Aether::Sound>(m_GunReload,  "assets/audio/pistol_reload.mp3"); // Sửa tên lớp
+    Aether::AssetManager::CreateAsset<Aether::Sound>(m_ZombieBite, "assets/audio/zombie_bite.mp3");   // Sửa tên lớp
 
     AE_CORE_INFO("MainGameLayer started.");
 }
 
 void MainGameLayer::Detach()
 {
+    std::ofstream out("save.dat", std::ios::binary);
+    if (out)
+    {
+        out.write((char*)&m_HighScore, sizeof(m_HighScore));
+        out.write((char*)&m_ZombiesKilled, sizeof(m_ZombiesKilled)); // Lưu thêm biến này
+    }
+
     auto rigSystem = Aether::AnimationSystem::GetModule<Aether::RigModule>();
 
     for (auto& [entity, record] : m_ZombieRegistry) {
@@ -629,7 +651,7 @@ void MainGameLayer::Update(Aether::Timestep ts)
 
 void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
 {
-    if (!m_BaseMapMesh) return;
+    // if (m_BaseMapMesh == Aether::AssetHandle(0)) return;
 
     const float actualChunkSize = m_ChunkSize;
     int centerX = static_cast<int>(std::floor(playerPos.x / actualChunkSize));
@@ -657,8 +679,8 @@ void MainGameLayer::UpdateMapChunks(const glm::vec3& playerPos)
             t.Dirty = true;
 
             auto& mesh = m_Scene.AddComponent<Aether::MeshComponent>(chunk);
-            mesh.MeshPtr = m_BaseMapMesh;
-            mesh.Materials = m_BaseMapMaterials;
+            mesh.Mesh      = m_BaseMapMesh;      // Đổi MeshPtr -> Mesh
+            mesh.Materials = m_BaseMapMaterials; // Đảm bảo m_BaseMapMaterials là vector<Aether::AssetHandle>
 
             ChunkData newData;
             newData.landEntity = chunk;
@@ -1033,14 +1055,36 @@ void MainGameLayer::OnImGuiRender()
     }
     else
     {
-        // Standard 4-line crosshair, spreads while moving
+        // 1. Logic có sẵn: Giãn khi di chuyển
         static float crosshairSpread = 0.0f;
         if (m_IsPlayerMoving) crosshairSpread = glm::mix(crosshairSpread, 12.0f, 0.1f);
         else                  crosshairSpread = glm::mix(crosshairSpread, 0.0f,  0.1f);
 
-        float baseLength = 10.0f;
-        float offset = 5.0f + crosshairSpread;
+        // 2. THÊM MỚI: Logic giãn khi bắn
+        // Chúng ta tạo một biến static để giữ trạng thái độ giãn qua từng frame
+        static float shootSpread = 0.0f;
 
+        // Kiểm tra nếu m_ShootTimer đang chạy (nghĩa là vừa bắn xong)
+        // Giả sử m_ShootTimer của bạn giảm dần về 0 sau mỗi lần bắn
+        if (m_ShootTimer > 0.0f) 
+        {
+            // Khi bắn, cộng thêm độ giãn ngay lập tức (ví dụ: 20.0f)
+            // m_ShootTimer càng lớn (vừa bắn) thì độ giãn càng cao
+            shootSpread = glm::mix(shootSpread, 20.0f, 0.2f);
+        }
+        else 
+        {
+            // Khi không bắn, thu tâm về 0 (nhanh hơn di chuyển một chút để cảm giác linh hoạt)
+            shootSpread = glm::mix(shootSpread, 0.0f, 0.15f);
+        }
+
+        float baseLength = 10.0f;
+        
+        // 3. TÍNH TỔNG OFFSET: Kết hợp cả 2 loại độ giãn
+        // Offset mặc định (5) + giãn do chạy + giãn do bắn
+        float offset = 5.0f + crosshairSpread + shootSpread;
+
+        // Vẽ 4 đường (giữ nguyên logic vẽ nhưng dùng offset mới)
         drawList->AddLine(ImVec2(center.x - offset - baseLength, center.y), ImVec2(center.x - offset, center.y), green, thickness);
         drawList->AddLine(ImVec2(center.x + offset, center.y), ImVec2(center.x + offset + baseLength, center.y), green, thickness);
         drawList->AddLine(ImVec2(center.x, center.y - offset - baseLength), ImVec2(center.x, center.y - offset), green, thickness);
@@ -1439,7 +1483,7 @@ void MainGameLayer::OnEvent(Aether::Event& event)
         }
 
         Aether::UUID src;
-        Aether::AudioSystem::CreateSource(src, m_GunSound, Aether::AudioType::Audio2D);
+        Aether::AudioSystem::CreateSource(src, m_GunSoundID, Aether::AudioType::Audio2D);
         Aether::AudioSystem::SetVolume(src, 0.3f);
         sources.push_back(src);
         Aether::AudioSystem::Play(src);
