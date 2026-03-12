@@ -46,6 +46,8 @@ private:
 
     Aether::Entity m_SunLight       = Aether::Null_Entity;
     Aether::Entity m_SelectedEntity = Aether::Null_Entity;
+    std::shared_ptr<Aether::FrameBuffer> m_ShadowFbo;
+    std::shared_ptr<Aether::FrameBuffer> m_MainFbo;
 
     bool m_ShowFlowFieldDebug = false;
 
@@ -130,8 +132,8 @@ private:
     };  
     std::map<std::pair<int, int>, ChunkData> m_ActiveChunks;
 
-    Aether::Ref<Aether::Mesh>                  m_BaseMapMesh;
-    std::vector<Aether::Ref<Aether::Material>> m_BaseMapMaterials;
+    Aether::AssetHandle              m_BaseMapMesh;
+    std::vector<Aether::AssetHandle> m_BaseMapMaterials;
 
     void DrawRadar();
 
@@ -153,7 +155,8 @@ private:
     float     m_FogStart   = 10.0f;
     float     m_FogEnd     = 80.0f;
 
-    Aether::UUID m_GunSound;
+    Aether::UUID m_BgmSoundID;   // Thêm dòng này để lưu nhạc nền
+    Aether::UUID m_GunSoundID;   // Đổi m_GunSound thành m_GunSoundID cho khớp
     Aether::UUID m_GunReload;
     Aether::UUID m_ZombieBite;
     std::vector<Aether::UUID> sources;
