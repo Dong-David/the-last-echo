@@ -29,7 +29,7 @@ public:
 
 private:
     void UpdateMapChunks(const glm::vec3& playerPos);
-
+    void DrawRadar();
     void DrawHierarchyPanel();
     void DrawEntityNode(Aether::Entity entity);
     void DrawScenePanel();
@@ -42,14 +42,14 @@ private:
     Aether::EditorCamera        m_Camera;
     Aether::Ref<Aether::Shader> m_ShadowShader;
     Aether::Ref<Aether::Shader> m_MainShader;
+    Aether::Ref<Aether::FrameBuffer> m_ShadowFbo;
+    Aether::Ref<Aether::FrameBuffer> m_MainFbo;
     std::vector<Aether::RenderPass> m_Pipeline;
 
     Aether::Entity m_SunLight       = Aether::Null_Entity;
-    Aether::Entity m_SelectedEntity = Aether::Null_Entity;
-    std::shared_ptr<Aether::FrameBuffer> m_ShadowFbo;
-    std::shared_ptr<Aether::FrameBuffer> m_MainFbo;
 
     bool m_ShowFlowFieldDebug = false;
+
 
     // --- Player ---
     Aether::Entity m_Player         = Aether::Null_Entity;
@@ -84,7 +84,7 @@ private:
 
     uint32_t m_ZombiesKilled = 0; // Số zom diệt trong lượt này
     uint32_t m_HighScore = 0;      // Kỷ lục lưu lại
-    
+
     // --- Flow Field ---
     std::map<std::pair<int, int>, FlowCell> m_FlowField;
     float m_PathGridSize = 1.0f;
@@ -132,10 +132,8 @@ private:
     };  
     std::map<std::pair<int, int>, ChunkData> m_ActiveChunks;
 
-    Aether::AssetHandle              m_BaseMapMesh;
+    Aether::AssetHandle m_BaseMapMesh;
     std::vector<Aether::AssetHandle> m_BaseMapMaterials;
-
-    void DrawRadar();
 
     // --- Rendering ---
     float m_ShadowBias  = 0.00001f;
@@ -155,10 +153,10 @@ private:
     float     m_FogStart   = 10.0f;
     float     m_FogEnd     = 80.0f;
 
-    Aether::UUID m_BgmSoundID;   // Thêm dòng này để lưu nhạc nền
-    Aether::UUID m_GunSoundID;   // Đổi m_GunSound thành m_GunSoundID cho khớp
-    Aether::UUID m_GunReload;
-    Aether::UUID m_ZombieBite;
+    Aether::UUID m_GunSoundID;
+    Aether::UUID m_GunReloadID;
+    Aether::UUID m_ZombieBiteID;
+    Aether::UUID m_BgmSoundID;
     std::vector<Aether::UUID> sources;
 
     float m_ShootTimer    = 0.0f;
