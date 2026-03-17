@@ -923,20 +923,23 @@ void MainGameLayer::OnImGuiRender()
     UI::PerformanceOverlay(0, 30, 60);
 
     // --- CROSSHAIR ---
+    // --- CROSSHAIR ---
     {
+        // Dùng hệ thống UI của Engine Aether
+        glm::vec2 engineCenter = UI::Screen::Center();
+        auto cv = UI::Foreground(); 
+
         if (m_IsReloading)
         {
-            glm::vec2 c  = UI::Screen::Center();
-            auto      cv = UI::Foreground();
             const float radius = 15.0f;
             const int   segs   = 8;
             for (int i = 0; i < segs; i++) {
                 float     angle = m_ReloadRotation + i * (2.0f * 3.14159f / segs);
-                glm::vec2 p1    = c + glm::vec2(cosf(angle), sinf(angle)) * (radius - 5.f);
-                glm::vec2 p2    = c + glm::vec2(cosf(angle), sinf(angle)) * radius;
+                glm::vec2 p1    = engineCenter + glm::vec2(cosf(angle), sinf(angle)) * (radius - 5.f);
+                glm::vec2 p2    = engineCenter + glm::vec2(cosf(angle), sinf(angle)) * radius;
                 cv.Line(p1, p2, UI::Col32(255, 255, 255, 255), 2.f);
             }
-            cv.CircleFill(c, 1.5f, UI::Col32(255, 0, 0, 150));
+            cv.CircleFill(engineCenter, 1.5f, UI::Col32(255, 0, 0, 150));
         }
         else
         {
@@ -951,18 +954,30 @@ void MainGameLayer::OnImGuiRender()
             float baseLength = 10.0f;
             float offset = 5.0f + crosshairSpread + shootSpread;
             
-            // Đã khai báo các thông số màu sắc và độ dày bị thiếu
             float thickness = 2.0f;
-            ImU32 green = IM_COL32(0, 255, 0, 255);
-            ImU32 white = IM_COL32(255, 255, 255, 255);
+            ImU32 green = UI::Col32(0, 255, 0, 255);
+            ImU32 white = UI::Col32(255, 255, 255, 255);
 
-            // Sửa drawList thành hudDraw và center thành scrCenter
-            hudDraw->AddLine(ImVec2(scrCenter.x - offset - baseLength, scrCenter.y), ImVec2(scrCenter.x - offset, scrCenter.y), green, thickness);
-            hudDraw->AddLine(ImVec2(scrCenter.x + offset, scrCenter.y), ImVec2(scrCenter.x + offset + baseLength, scrCenter.y), green, thickness);
-            hudDraw->AddLine(ImVec2(scrCenter.x, scrCenter.y - offset - baseLength), ImVec2(scrCenter.x, scrCenter.y - offset), green, thickness);
-            hudDraw->AddLine(ImVec2(scrCenter.x, scrCenter.y + offset), ImVec2(scrCenter.x, scrCenter.y + offset + baseLength), green, thickness);
+            // DÙNG CÔNG CỤ VẼ CỦA ENGINE (cv) THAY VÌ IMGUI THUẦN
+            // Tính toán trực tiếp bằng glm::vec2
+            glm::vec2 leftStart = engineCenter + glm::vec2(-offset - baseLength, 0.0f);
+            glm::vec2 leftEnd   = engineCenter + glm::vec2(-offset, 0.0f);
+            cv.Line(leftStart, leftEnd, green, thickness);
+
+            glm::vec2 rightStart = engineCenter + glm::vec2(offset, 0.0f);
+            glm::vec2 rightEnd   = engineCenter + glm::vec2(offset + baseLength, 0.0f);
+            cv.Line(rightStart, rightEnd, green, thickness);
+
+            glm::vec2 topStart = engineCenter + glm::vec2(0.0f, -offset - baseLength);
+            glm::vec2 topEnd   = engineCenter + glm::vec2(0.0f, -offset);
+            cv.Line(topStart, topEnd, green, thickness);
+
+            glm::vec2 bottomStart = engineCenter + glm::vec2(0.0f, offset);
+            glm::vec2 bottomEnd   = engineCenter + glm::vec2(0.0f, offset + baseLength);
+            cv.Line(bottomStart, bottomEnd, green, thickness);
             
-            hudDraw->AddCircleFilled(scrCenter, 1.5f, white);
+            // Vẽ chấm tròn ở giữa
+            cv.CircleFill(engineCenter, 1.5f, white);
         }
     }
 
